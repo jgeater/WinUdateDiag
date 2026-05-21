@@ -28,11 +28,12 @@ namespace WinUdateDiag
             try
             {
                 Console.WriteLine("Searching for updates...");
-                
+
+                // Simplified search criteria - more compatible across systems
                 string searchCriteria = includeOptional 
                     ? "IsInstalled=0" 
                     : "IsInstalled=0 and Type='Software'";
-                
+
                 ISearchResult searchResult = _updateSearcher.Search(searchCriteria);
 
                 Console.WriteLine($"Found {searchResult.Updates.Count} update(s)");
@@ -58,7 +59,7 @@ namespace WinUdateDiag
             }
             catch (COMException ex)
             {
-                Console.WriteLine($"Error searching for updates: {ex.Message}");
+                HandleSearchError(ex, "available updates");
             }
 
             return updates;
@@ -73,29 +74,45 @@ namespace WinUdateDiag
             try
             {
                 Console.WriteLine("Searching for pending updates...");
-                
-                ISearchResult searchResult = _updateSearcher.Search("IsInstalled=0 and IsDownloaded=1");
 
-                Console.WriteLine($"Found {searchResult.Updates.Count} pending update(s)");
+                // Try simple search first
+                ISearchResult searchResult;
+                try
+                {
+                    searchResult = _updateSearcher.Search("IsInstalled=0 and IsPresent=1");
+                }
+                catch (COMException)
+                {
+                    // Fallback to simpler criteria if IsPresent causes issues
+                    searchResult = _updateSearcher.Search("IsInstalled=0");
+                }
 
+                int pendingCount = 0;
                 foreach (IUpdate update in searchResult.Updates)
                 {
-                    updates.Add(new UpdateInfo
+                    // Filter for downloaded updates
+                    if (update.IsDownloaded)
                     {
-                        Title = update.Title,
-                        Description = update.Description,
-                        IsDownloaded = update.IsDownloaded,
-                        IsMandatory = update.IsMandatory,
-                        KBArticleIDs = GetKBArticles(update.KBArticleIDs),
-                        MaxDownloadSize = update.MaxDownloadSize,
-                        RebootRequired = update.InstallationBehavior?.RebootBehavior != WUApiLib.InstallationRebootBehavior.irbNeverReboots,
-                        UpdateID = update.Identity.UpdateID
-                    });
+                        pendingCount++;
+                        updates.Add(new UpdateInfo
+                        {
+                            Title = update.Title,
+                            Description = update.Description,
+                            IsDownloaded = update.IsDownloaded,
+                            IsMandatory = update.IsMandatory,
+                            KBArticleIDs = GetKBArticles(update.KBArticleIDs),
+                            MaxDownloadSize = update.MaxDownloadSize,
+                            RebootRequired = update.InstallationBehavior?.RebootBehavior != WUApiLib.InstallationRebootBehavior.irbNeverReboots,
+                            UpdateID = update.Identity.UpdateID
+                        });
+                    }
                 }
+
+                Console.WriteLine($"Found {pendingCount} pending update(s)");
             }
             catch (COMException ex)
             {
-                Console.WriteLine($"Error searching for pending updates: {ex.Message}");
+                HandleSearchError(ex, "pending updates");
             }
 
             return updates;
@@ -186,6 +203,41 @@ namespace WinUdateDiag
                 }
             }
             return categoryList;
+        }
+
+        private void HandleSearchError(COMException ex, string operationType)
+        {
+            const int WU_E_INVALID_CRITERIA = unchecked((int)0x80240032);
+            const int WU_E_PT_INVALID_URL = unchecked((int)0x80240002);
+            const int WU_E_NO_SERVICE = unchecked((int)0x80240437);
+
+            Console.ForegroundColor = ConsoleColor.Red;
+
+            if (ex.ErrorCode == WU_E_INVALID_CRITERIA)
+            {
+                Console.WriteLine($"Error searching for {operationType}: Invalid search criteria (0x80240032)");
+                Console.WriteLine("This can occur when:");
+                Console.WriteLine("  - Windows Update service is not properly initialized");
+                Console.WriteLine("  - Windows Update database is corrupted");
+                Console.WriteLine("  - System requires a restart");
+                Console.WriteLine("\nTry running: WinUdateDiag --diagnose");
+            }
+            else if (ex.ErrorCode == WU_E_PT_INVALID_URL)
+            {
+                Console.WriteLine($"Error searching for {operationType}: Invalid update server URL (0x80240002)");
+                Console.WriteLine("Check your WSUS/Windows Update configuration.");
+            }
+            else if (ex.ErrorCode == WU_E_NO_SERVICE)
+            {
+                Console.WriteLine($"Error searching for {operationType}: Windows Update service is not available (0x80240437)");
+                Console.WriteLine("Ensure the Windows Update service is running.");
+            }
+            else
+            {
+                Console.WriteLine($"Error searching for {operationType}: {ex.Message} (0x{ex.ErrorCode:X})");
+            }
+
+            Console.ResetColor();
         }
     }
 

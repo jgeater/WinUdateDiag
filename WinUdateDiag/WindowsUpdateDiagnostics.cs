@@ -252,28 +252,58 @@ namespace WinUdateDiag
         {
             try
             {
-                using (var ping = new System.Net.NetworkInformation.Ping())
+                // Try HTTP request first (more reliable than ping for Windows Update servers)
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                using (var client = new System.Net.WebClient())
                 {
-                    var result = ping.Send("update.microsoft.com", 5000);
-                    
-                    if (result.Status == System.Net.NetworkInformation.IPStatus.Success)
+                    client.Headers.Add("User-Agent", "WinUpdateDiag");
+                    client.Proxy = System.Net.WebRequest.DefaultWebProxy;
+                    client.Proxy.Credentials = System.Net.CredentialCache.DefaultNetworkCredentials;
+
+                    try
                     {
+                        // Try to download a small file from Microsoft's update servers
+                        client.DownloadData("http://www.msftconnecttest.com/connecttest.txt");
+                        stopwatch.Stop();
+
                         _results.Add(new DiagnosticResult
                         {
                             CheckName = "Network Connectivity",
                             Status = DiagnosticStatus.Pass,
-                            Message = $"Can reach Windows Update servers (RTT: {result.RoundtripTime}ms)"
+                            Message = $"Can reach Microsoft servers ({stopwatch.ElapsedMilliseconds}ms)"
                         });
+                        return;
                     }
-                    else
+                    catch
                     {
-                        _results.Add(new DiagnosticResult
+                        // If HTTP fails, try ping to a reliable Microsoft server
+                        stopwatch.Restart();
+                        using (var ping = new System.Net.NetworkInformation.Ping())
                         {
-                            CheckName = "Network Connectivity",
-                            Status = DiagnosticStatus.Warning,
-                            Message = $"Cannot reach Windows Update servers: {result.Status}",
-                            Recommendation = "Check network connection and firewall settings"
-                        });
+                            var result = ping.Send("8.8.8.8", 5000); // Google DNS as fallback
+                            stopwatch.Stop();
+
+                            if (result.Status == System.Net.NetworkInformation.IPStatus.Success)
+                            {
+                                _results.Add(new DiagnosticResult
+                                {
+                                    CheckName = "Network Connectivity",
+                                    Status = DiagnosticStatus.Warning,
+                                    Message = $"Internet is reachable but cannot connect to Microsoft servers",
+                                    Recommendation = "Check firewall settings and proxy configuration for Windows Update"
+                                });
+                            }
+                            else
+                            {
+                                _results.Add(new DiagnosticResult
+                                {
+                                    CheckName = "Network Connectivity",
+                                    Status = DiagnosticStatus.Error,
+                                    Message = $"No network connectivity detected",
+                                    Recommendation = "Check network connection and verify internet access"
+                                });
+                            }
+                        }
                     }
                 }
             }
