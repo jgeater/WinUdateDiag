@@ -23,12 +23,14 @@ namespace WinUdateDiag
         public string LastSuccessTime { get; set; }
         public string LastSearchSuccessTime { get; set; }
         public List<string> ServiceStatus { get; set; }
+        public List<RegistryKeyInfo> CheckedRegistryKeys { get; set; }
 
         public static WindowsUpdateConfiguration GetConfiguration()
         {
             var config = new WindowsUpdateConfiguration
             {
-                ServiceStatus = new List<string>()
+                ServiceStatus = new List<string>(),
+                CheckedRegistryKeys = new List<RegistryKeyInfo>()
             };
 
             try
@@ -49,57 +51,121 @@ namespace WinUdateDiag
         {
             try
             {
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"))
+                // Check Windows Update Policy settings
+                string keyPath = @"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate";
+                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(keyPath))
                 {
+                    var keyInfo = new RegistryKeyInfo
+                    {
+                        Path = $@"HKLM\{keyPath}",
+                        Exists = key != null
+                    };
+
                     if (key != null)
                     {
                         WUServer = key.GetValue("WUServer") as string;
                         WUStatusServer = key.GetValue("WUStatusServer") as string;
                         TargetGroup = key.GetValue("TargetGroup") as string;
                         ElevateNonAdmins = Convert.ToBoolean(key.GetValue("ElevateNonAdmins", 0));
+
+                        keyInfo.Values.Add($"WUServer = {WUServer ?? "(not set)"}");
+                        keyInfo.Values.Add($"WUStatusServer = {WUStatusServer ?? "(not set)"}");
+                        keyInfo.Values.Add($"TargetGroup = {TargetGroup ?? "(not set)"}");
+                        keyInfo.Values.Add($"ElevateNonAdmins = {ElevateNonAdmins}");
                     }
+
+                    CheckedRegistryKeys.Add(keyInfo);
                 }
 
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"))
+                // Check Windows Update Auto Update Policy settings
+                keyPath = @"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU";
+                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(keyPath))
                 {
+                    var keyInfo = new RegistryKeyInfo
+                    {
+                        Path = $@"HKLM\{keyPath}",
+                        Exists = key != null
+                    };
+
                     if (key != null)
                     {
                         var auOption = key.GetValue("AUOptions");
                         if (auOption != null)
                         {
                             AutoUpdateOption = GetAutoUpdateOptionText((int)auOption);
+                            keyInfo.Values.Add($"AUOptions = {auOption} ({AutoUpdateOption})");
                         }
 
                         NoAutoUpdate = Convert.ToBoolean(key.GetValue("NoAutoUpdate", 0));
                         ScheduledInstallDay = Convert.ToInt32(key.GetValue("ScheduledInstallDay", 0));
                         ScheduledInstallTime = Convert.ToInt32(key.GetValue("ScheduledInstallTime", 0));
                         UseWUServer = Convert.ToBoolean(key.GetValue("UseWUServer", 0));
+
+                        keyInfo.Values.Add($"NoAutoUpdate = {NoAutoUpdate}");
+                        keyInfo.Values.Add($"ScheduledInstallDay = {ScheduledInstallDay}");
+                        keyInfo.Values.Add($"ScheduledInstallTime = {ScheduledInstallTime}");
+                        keyInfo.Values.Add($"UseWUServer = {UseWUServer}");
                     }
+
+                    CheckedRegistryKeys.Add(keyInfo);
                 }
 
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update"))
+                // Check Windows Update Auto Update settings
+                keyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update";
+                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(keyPath))
                 {
+                    var keyInfo = new RegistryKeyInfo
+                    {
+                        Path = $@"HKLM\{keyPath}",
+                        Exists = key != null
+                    };
+
                     if (key != null)
                     {
                         var enabled = key.GetValue("EnableFeaturedSoftware");
                         AutoUpdateEnabled = enabled != null && Convert.ToBoolean(enabled);
+                        keyInfo.Values.Add($"EnableFeaturedSoftware = {enabled ?? "(not set)"}");
                     }
+
+                    CheckedRegistryKeys.Add(keyInfo);
                 }
 
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\Results\Download"))
+                // Check last download success
+                keyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\Results\Download";
+                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(keyPath))
                 {
+                    var keyInfo = new RegistryKeyInfo
+                    {
+                        Path = $@"HKLM\{keyPath}",
+                        Exists = key != null
+                    };
+
                     if (key != null)
                     {
                         LastSuccessTime = key.GetValue("LastSuccessTime") as string;
+                        keyInfo.Values.Add($"LastSuccessTime = {LastSuccessTime ?? "(not set)"}");
                     }
+
+                    CheckedRegistryKeys.Add(keyInfo);
                 }
 
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\Results\Search"))
+                // Check last search success
+                keyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\Results\Search";
+                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(keyPath))
                 {
+                    var keyInfo = new RegistryKeyInfo
+                    {
+                        Path = $@"HKLM\{keyPath}",
+                        Exists = key != null
+                    };
+
                     if (key != null)
                     {
                         LastSearchSuccessTime = key.GetValue("LastSuccessTime") as string;
+                        keyInfo.Values.Add($"LastSuccessTime = {LastSearchSuccessTime ?? "(not set)"}");
                     }
+
+                    CheckedRegistryKeys.Add(keyInfo);
                 }
             }
             catch (Exception ex)
@@ -171,34 +237,59 @@ namespace WinUdateDiag
             Console.WriteLine($"Auto Update Option: {AutoUpdateOption ?? "Not configured"}");
             Console.WriteLine($"No Auto Update: {NoAutoUpdate}");
             Console.WriteLine($"Use WSUS Server: {UseWUServer}");
-            
+
             if (!string.IsNullOrEmpty(WUServer))
                 Console.WriteLine($"WSUS Server: {WUServer}");
-            
+
             if (!string.IsNullOrEmpty(WUStatusServer))
                 Console.WriteLine($"WSUS Status Server: {WUStatusServer}");
-            
+
             if (!string.IsNullOrEmpty(TargetGroup))
                 Console.WriteLine($"Target Group: {TargetGroup}");
-            
+
             if (ScheduledInstallDay > 0)
                 Console.WriteLine($"Scheduled Install Day: {GetDayOfWeek(ScheduledInstallDay)}");
-            
+
             if (ScheduledInstallTime > 0)
                 Console.WriteLine($"Scheduled Install Time: {ScheduledInstallTime:D2}:00");
-            
+
             Console.WriteLine($"Elevate Non-Admins: {ElevateNonAdmins}");
-            
+
             if (!string.IsNullOrEmpty(LastSuccessTime))
                 Console.WriteLine($"Last Download Success: {LastSuccessTime}");
-            
+
             if (!string.IsNullOrEmpty(LastSearchSuccessTime))
                 Console.WriteLine($"Last Search Success: {LastSearchSuccessTime}");
-            
+
             Console.WriteLine("\n=== Service Status ===");
             foreach (var status in ServiceStatus)
             {
                 Console.WriteLine(status);
+            }
+
+            Console.WriteLine("\n=== Registry Keys Checked ===");
+            foreach (var regKey in CheckedRegistryKeys)
+            {
+                if (regKey.Exists)
+                {
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"[✓] {regKey.Path}");
+                    Console.ResetColor();
+
+                    if (regKey.Values.Count > 0)
+                    {
+                        foreach (var value in regKey.Values)
+                        {
+                            Console.WriteLine($"    {value}");
+                        }
+                    }
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"[!] {regKey.Path} (not found)");
+                    Console.ResetColor();
+                }
             }
         }
 
@@ -216,6 +307,21 @@ namespace WinUdateDiag
                 case 7: return "Saturday";
                 default: return $"Unknown ({day})";
             }
+        }
+    }
+
+    /// <summary>
+    /// Information about a checked registry key
+    /// </summary>
+    public class RegistryKeyInfo
+    {
+        public string Path { get; set; }
+        public bool Exists { get; set; }
+        public List<string> Values { get; set; }
+
+        public RegistryKeyInfo()
+        {
+            Values = new List<string>();
         }
     }
 }

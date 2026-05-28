@@ -4,11 +4,14 @@ A comprehensive C# command-line utility for managing, diagnosing, and monitoring
 
 ## Features
 
-- **Configuration Display**: View Windows Update settings, WSUS configuration, and service status
-- **Diagnostics**: Detect and report common Windows Update issues
-- **Update Listing**: List available, pending, and installed updates
+- **Configuration Display**: View Windows Update settings, WSUS configuration, service status, and registry key inspection
+- **Diagnostics**: Detect and report common Windows Update issues with detailed error handling
+- **Update Listing**: List available, pending, and installed updates with improved error handling for common issues
 - **Update History**: View installation history with customizable entry count
 - **Optional Updates**: Include or exclude optional updates in searches
+- **Registry Reporting**: See all registry keys checked and their values for troubleshooting
+- **Enhanced Error Messages**: Specific guidance for common errors like 0x80240032
+- **Network Testing**: Uses Microsoft's official connectivity test endpoints
 
 ## Requirements
 
@@ -62,6 +65,7 @@ Shows:
 - WSUS server configuration
 - Service status (wuauserv, BITS, cryptsvc, msiserver)
 - Last update check times
+- Registry keys checked with their values (shows which keys exist and their current settings)
 
 #### Run Diagnostics
 ```cmd
@@ -125,8 +129,17 @@ The diagnostic feature checks:
 5. **Disk Space**: Warns if free space is below 20GB, errors if below 10GB
 6. **Pending Reboot**: Detects if a restart is required to complete previous updates
 7. **Update Database**: Checks for database corruption or excessive size
-8. **Network Connectivity**: Tests connection to Microsoft Update servers
+8. **Network Connectivity**: Tests HTTP connection to Microsoft servers (uses `msftconnecttest.com` - the same endpoint Windows uses)
 9. **System Integrity**: Verifies critical Windows Update paths exist
+
+### Network Connectivity Check Details
+- **Primary test**: HTTP request to `http://www.msftconnecttest.com/connecttest.txt`
+- **Fallback test**: Ping to `8.8.8.8` to verify basic internet connectivity
+- **Respects proxy settings**: Uses system proxy configuration and credentials
+- **Result interpretation**:
+  - ✓ **Pass**: Can reach Microsoft servers
+  - ⚠️ **Warning**: Internet works but Microsoft servers unreachable (firewall/proxy issue)
+  - ✗ **Error**: No network connectivity detected
 
 ## Configuration Information
 
@@ -139,6 +152,12 @@ The configuration display shows:
 - Scheduled installation day and time
 - Service status for all update-related services
 - Last successful download and search times
+- **Registry keys checked**: All registry keys examined with their existence status and values
+  - `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate` - Policy settings
+  - `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU` - Auto Update policies
+  - `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update` - Auto Update settings
+  - `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\Results\Download` - Download results
+  - `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\Results\Search` - Search results
 
 ## Update Information Displayed
 
@@ -149,9 +168,14 @@ For each update, the tool shows:
 - Download status
 - Mandatory/optional classification
 - Download size
-- Reboot requirement
+- Reboot requirement (determined from InstallationBehavior.RebootBehavior)
 - Severity level
 - Update categories
+
+### Technical Notes
+- **Reboot detection**: Uses `InstallationBehavior.RebootBehavior` to determine if reboot is required
+- **Error handling**: Provides specific messages for common COM errors (0x80240032, 0x80240002, 0x80240437)
+- **Fallback search**: If advanced search criteria fail, falls back to simpler criteria
 
 ## Exit Codes
 
@@ -178,6 +202,18 @@ Ensure Windows Update Agent API is properly registered:
 ```cmd
 regsvr32 wuapi.dll
 ```
+
+### Error 0x80240032 (WU_E_INVALID_CRITERIA)
+This error indicates invalid search criteria or Windows Update service issues:
+- **Restart Windows Update service**: `net stop wuauserv && net start wuauserv`
+- **Check if system restart is needed**: Run `WinUpdateDiag.exe --diagnose`
+- The tool now provides detailed guidance when this error occurs
+
+### Network Connectivity Failures
+The tool uses HTTP requests to `msftconnecttest.com` instead of ping:
+- If this fails, it tests general internet connectivity
+- Check firewall settings if Microsoft servers are unreachable
+- Verify proxy configuration if in a corporate environment
 
 ### No Updates Found
 - Check network connectivity
