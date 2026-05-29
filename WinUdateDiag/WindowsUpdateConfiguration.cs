@@ -1,6 +1,7 @@
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Management;
 
 namespace WinUdateDiag
@@ -24,13 +25,16 @@ namespace WinUdateDiag
         public string LastSearchSuccessTime { get; set; }
         public List<string> ServiceStatus { get; set; }
         public List<RegistryKeyInfo> CheckedRegistryKeys { get; set; }
+        public List<string> MDMPolicies { get; set; }
+        public bool HasMDMPolicies { get; set; }
 
         public static WindowsUpdateConfiguration GetConfiguration()
         {
             var config = new WindowsUpdateConfiguration
             {
                 ServiceStatus = new List<string>(),
-                CheckedRegistryKeys = new List<RegistryKeyInfo>()
+                CheckedRegistryKeys = new List<RegistryKeyInfo>(),
+                MDMPolicies = new List<string>()
             };
 
             try
@@ -38,6 +42,7 @@ namespace WinUdateDiag
                 config.GetRegistrySettings();
                 config.GetServiceStatus();
                 config.GetWUASettings();
+                config.GetMDMPolicies();
             }
             catch (Exception ex)
             {
@@ -291,6 +296,22 @@ namespace WinUdateDiag
                     Console.ResetColor();
                 }
             }
+
+            // Display MDM Policies
+            if (HasMDMPolicies && MDMPolicies.Count > 0)
+            {
+                Console.WriteLine("\n=== MDM/Intune Policies ===");
+                foreach (var policy in MDMPolicies)
+                {
+                    Console.WriteLine(policy);
+                }
+            }
+            else
+            {
+                Console.WriteLine("\n=== MDM/Intune Policies ===");
+                Console.WriteLine("No MDM/Intune policies detected.");
+                Console.WriteLine("Device appears to be unmanaged or using local Group Policy only.");
+            }
         }
 
         private string GetDayOfWeek(int day)
@@ -306,6 +327,228 @@ namespace WinUdateDiag
                 case 6: return "Friday";
                 case 7: return "Saturday";
                 default: return $"Unknown ({day})";
+            }
+        }
+
+        private void GetMDMPolicies()
+        {
+            try
+            {
+                // Check MDM provider information - validate it's a real active enrollment
+                using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Enrollments"))
+                {
+                    if (key != null)
+                    {
+                        foreach (string subKeyName in key.GetSubKeyNames())
+                        {
+                            using (var enrollmentKey = key.OpenSubKey(subKeyName))
+                            {
+                                if (enrollmentKey != null)
+                                {
+                                    var enrollmentState = enrollmentKey.GetValue("EnrollmentState");
+
+                                    // Check for active enrollment (state = 1) AND validate it's real
+                                    if (enrollmentState != null && Convert.ToInt32(enrollmentState) == 1)
+                                    {
+                                        var providerName = enrollmentKey.GetValue("ProviderName");
+                                        var providerID = enrollmentKey.GetValue("ProviderID");
+                                        var discoveryServiceFullUrl = enrollmentKey.GetValue("DiscoveryServiceFullURL");
+                                        var upn = enrollmentKey.GetValue("UPN");
+
+                                        // Only consider it a real enrollment if we have provider info
+                                        bool isRealEnrollment = providerName != null || 
+                                                               providerID != null || 
+                                                               discoveryServiceFullUrl != null;
+
+                                        if (isRealEnrollment)
+                                        {
+                                            if (!MDMPolicies.Any(p => p == "=== MDM Enrollment ==="))
+                                            {
+                                                MDMPolicies.Add("=== MDM Enrollment ===");
+                                            }
+
+                                            if (providerName != null)
+                                            {
+                                                MDMPolicies.Add($"Provider: {providerName}");
+                                            }
+                                            else if (discoveryServiceFullUrl != null)
+                                            {
+                                                MDMPolicies.Add($"Discovery URL: {discoveryServiceFullUrl}");
+                                            }
+                                            else if (providerID != null)
+                                            {
+                                                MDMPolicies.Add($"Provider ID: {providerID}");
+                                            }
+
+                                            MDMPolicies.Add($"Enrollment State: Active");
+
+                                            if (upn != null)
+                                            {
+                                                MDMPolicies.Add($"User: {upn}");
+                                            }
+
+                                            HasMDMPolicies = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Check MDM Update policies using 64-bit registry view
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                {
+                    try
+                    {
+                        using (var key = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\PolicyManager\current\device\Update", writable: false))
+                        {
+                            if (key != null)
+                            {
+                                string[] valueNames = key.GetValueNames();
+
+                                // Filter to get only actual policy settings (not metadata)
+                                var policyValues = valueNames.Where(v => 
+                                    !string.IsNullOrWhiteSpace(v) && 
+                                    !v.EndsWith("_ProviderSet", StringComparison.OrdinalIgnoreCase) &&
+                                    !v.EndsWith("_WinningProvider", StringComparison.OrdinalIgnoreCase) &&
+                                    !v.EndsWith("_LastWrite", StringComparison.OrdinalIgnoreCase) &&
+                                    !v.Equals("knobs_Dirty", StringComparison.OrdinalIgnoreCase)).ToArray();
+
+                                if (policyValues.Length > 0)
+                                {
+                                    MDMPolicies.Add("\n=== MDM Update Policies ===");
+                                    MDMPolicies.Add($"Found {policyValues.Length} active policy setting(s) from PolicyManager");
+
+                                    // Group policies by category for better readability
+                                    var deferrals = new List<string>();
+                                    var deadlines = new List<string>();
+                                    var enrollment = new List<string>();
+                                    var other = new List<string>();
+
+                                    foreach (string valueName in policyValues)
+                                    {
+                                        var value = key.GetValue(valueName);
+                                        if (value != null)
+                                        {
+                                            string formattedValue = value.ToString();
+                                            string policyLine = $"{valueName} = {formattedValue}";
+
+                                            // Categorize for better organization
+                                            if (valueName.Contains("Defer") || valueName.Contains("Pause"))
+                                            {
+                                                deferrals.Add(policyLine);
+                                            }
+                                            else if (valueName.Contains("Deadline") || valueName.Contains("Grace"))
+                                            {
+                                                deadlines.Add(policyLine);
+                                            }
+                                            else if (valueName.Contains("Enrolled"))
+                                            {
+                                                enrollment.Add(policyLine);
+                                            }
+                                            else
+                                            {
+                                                other.Add(policyLine);
+                                            }
+                                        }
+                                    }
+
+                                    // Display in organized sections
+                                    if (deferrals.Count > 0)
+                                    {
+                                        MDMPolicies.Add("\nDeferral & Pause Settings:");
+                                        MDMPolicies.AddRange(deferrals.Select(p => $"  {p}"));
+                                    }
+                                    if (deadlines.Count > 0)
+                                    {
+                                        MDMPolicies.Add("\nDeadline Settings:");
+                                        MDMPolicies.AddRange(deadlines.Select(p => $"  {p}"));
+                                    }
+                                    if (enrollment.Count > 0)
+                                    {
+                                        MDMPolicies.Add("\nEnrollment Status:");
+                                        MDMPolicies.AddRange(enrollment.Select(p => $"  {p}"));
+                                    }
+                                    if (other.Count > 0)
+                                    {
+                                        MDMPolicies.Add("\nOther Settings:");
+                                        MDMPolicies.AddRange(other.Select(p => $"  {p}"));
+                                    }
+
+                                    HasMDMPolicies = true;
+                                }
+                            }
+                        }
+                    }
+                    catch (System.Security.SecurityException)
+                    {
+                        MDMPolicies.Add("\n! Access denied to PolicyManager registry key");
+                        MDMPolicies.Add("  Run with administrator privileges to view MDM policies");
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        MDMPolicies.Add("\n! Unauthorized access to PolicyManager registry key");
+                        MDMPolicies.Add("  Run with administrator privileges to view MDM policies");
+                    }
+                }
+
+                // Check Windows Update for Business settings
+                using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"))
+                {
+                    if (key != null)
+                    {
+                        var deferFeature = key.GetValue("DeferFeatureUpdatesPeriodInDays");
+                        var deferQuality = key.GetValue("DeferQualityUpdatesPeriodInDays");
+                        var pauseStart = key.GetValue("PauseFeatureUpdatesStartTime");
+
+                        if (deferFeature != null || deferQuality != null || pauseStart != null)
+                        {
+                            if (!MDMPolicies.Any(p => p.Contains("Windows Update for Business")))
+                            {
+                                MDMPolicies.Add("\n=== Windows Update for Business ===");
+                            }
+                            if (deferFeature != null)
+                            {
+                                MDMPolicies.Add($"Defer Feature Updates: {deferFeature} days");
+                                HasMDMPolicies = true;
+                            }
+                            if (deferQuality != null)
+                            {
+                                MDMPolicies.Add($"Defer Quality Updates: {deferQuality} days");
+                                HasMDMPolicies = true;
+                            }
+                        }
+                    }
+                }
+
+                // Check Intune Management Extension presence
+                var intuneKeys = new[]
+                {
+                    @"SOFTWARE\Microsoft\IntuneManagementExtension\Win32Apps",
+                    @"SOFTWARE\Microsoft\Provisioning\OMADM\Accounts"
+                };
+
+                foreach (var keyPath in intuneKeys)
+                {
+                    using (var key = Registry.LocalMachine.OpenSubKey(keyPath))
+                    {
+                        if (key != null)
+                        {
+                            if (!MDMPolicies.Any(p => p.Contains("Intune Management")))
+                            {
+                                MDMPolicies.Add("\n=== Intune Management ===");
+                                MDMPolicies.Add($"Intune Management Extension detected");
+                                HasMDMPolicies = true;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MDMPolicies.Add($"Error checking MDM policies: {ex.Message}");
             }
         }
     }

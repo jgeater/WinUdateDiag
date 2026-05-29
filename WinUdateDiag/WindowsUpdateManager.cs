@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Microsoft.Win32;
 using WUApiLib;
 
 namespace WinUdateDiag
@@ -28,6 +29,16 @@ namespace WinUdateDiag
             try
             {
                 Console.WriteLine("Searching for updates...");
+
+                // Check if drivers are excluded by MDM policy
+                bool driversExcluded = CheckIfDriversExcludedByMDM();
+                if (driversExcluded)
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine("⚠ Note: Driver updates are excluded by MDM policy (ExcludeWUDriversInQualityUpdate)");
+                    Console.WriteLine("  Drivers will not appear in search results. Use --drivers to see blocked drivers.");
+                    Console.ResetColor();
+                }
 
                 // Simplified search criteria - more compatible across systems
                 string searchCriteria = includeOptional 
@@ -113,6 +124,52 @@ namespace WinUdateDiag
             catch (COMException ex)
             {
                 HandleSearchError(ex, "pending updates");
+            }
+
+            return updates;
+        }
+
+        /// <summary>
+        /// Gets applicable updates that are not yet installed (includes both downloaded and not downloaded)
+        /// </summary>
+        public List<UpdateInfo> GetApplicableUpdates(bool includeOptional = false)
+        {
+            var updates = new List<UpdateInfo>();
+            try
+            {
+                Console.WriteLine("Searching for applicable updates...");
+
+                // Search for all non-installed updates
+                string searchCriteria = includeOptional 
+                    ? "IsInstalled=0" 
+                    : "IsInstalled=0 and Type='Software'";
+
+                ISearchResult searchResult = _updateSearcher.Search(searchCriteria);
+
+                Console.WriteLine($"Found {searchResult.Updates.Count} applicable update(s)");
+
+                foreach (IUpdate update in searchResult.Updates)
+                {
+                    updates.Add(new UpdateInfo
+                    {
+                        Title = update.Title,
+                        Description = update.Description,
+                        IsDownloaded = update.IsDownloaded,
+                        IsMandatory = update.IsMandatory,
+                        KBArticleIDs = GetKBArticles(update.KBArticleIDs),
+                        MaxDownloadSize = update.MaxDownloadSize,
+                        MinDownloadSize = update.MinDownloadSize,
+                        RebootRequired = update.InstallationBehavior?.RebootBehavior != WUApiLib.InstallationRebootBehavior.irbNeverReboots,
+                        SeverityLevel = update.MsrcSeverity,
+                        UpdateID = update.Identity.UpdateID,
+                        SupportUrl = update.SupportUrl,
+                        Categories = GetCategories(update.Categories)
+                    });
+                }
+            }
+            catch (COMException ex)
+            {
+                HandleSearchError(ex, "applicable updates");
             }
 
             return updates;
@@ -238,6 +295,109 @@ namespace WinUdateDiag
             }
 
             Console.ResetColor();
+        }
+
+        /// <summary>
+        /// Checks if drivers are excluded by MDM policy
+        /// </summary>
+        private bool CheckIfDriversExcludedByMDM()
+        {
+            try
+            {
+                // Check PolicyManager for ExcludeWUDriversInQualityUpdate
+                using (RegistryKey baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (RegistryKey key = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\PolicyManager\current\device\Update"))
+                {
+                    if (key != null)
+                    {
+                        object value = key.GetValue("ExcludeWUDriversInQualityUpdate");
+                        if (value != null && value.ToString() == "1")
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // If we can't read the registry, assume drivers aren't excluded
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Gets driver updates that are blocked by MDM policy
+        /// This attempts to search for drivers even when ExcludeWUDriversInQualityUpdate is enabled
+        /// </summary>
+        public List<UpdateInfo> GetBlockedDrivers()
+        {
+            var updates = new List<UpdateInfo>();
+
+            // First check if drivers are actually excluded
+            if (!CheckIfDriversExcludedByMDM())
+            {
+                Console.WriteLine("Driver updates are not excluded by MDM policy.");
+                return updates;
+            }
+
+            try
+            {
+                Console.WriteLine("Searching for driver updates that are blocked by MDM policy...");
+                Console.WriteLine("(Attempting to enumerate drivers despite ExcludeWUDriversInQualityUpdate policy)");
+
+                // Search specifically for driver updates
+                // Type='Driver' will attempt to find driver updates
+                string searchCriteria = "IsInstalled=0 and Type='Driver'";
+
+                ISearchResult searchResult = _updateSearcher.Search(searchCriteria);
+
+                Console.WriteLine($"Found {searchResult.Updates.Count} driver update(s) blocked by policy");
+
+                foreach (IUpdate update in searchResult.Updates)
+                {
+                    updates.Add(new UpdateInfo
+                    {
+                        Title = update.Title,
+                        Description = update.Description,
+                        IsDownloaded = update.IsDownloaded,
+                        IsMandatory = update.IsMandatory,
+                        KBArticleIDs = GetKBArticles(update.KBArticleIDs),
+                        MaxDownloadSize = update.MaxDownloadSize,
+                        MinDownloadSize = update.MinDownloadSize,
+                        RebootRequired = update.InstallationBehavior?.RebootBehavior != WUApiLib.InstallationRebootBehavior.irbNeverReboots,
+                        SeverityLevel = update.MsrcSeverity,
+                        UpdateID = update.Identity.UpdateID,
+                        SupportUrl = update.SupportUrl,
+                        Categories = GetCategories(update.Categories)
+                    });
+                }
+            }
+            catch (COMException ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"\n✗ Error searching for driver updates:");
+                Console.WriteLine($"  Error Code: 0x{ex.ErrorCode:X8}");
+
+                // Note: Type='Driver' search may not work if the policy is enforced at API level
+                if ((uint)ex.ErrorCode == 0x80240032 || (uint)ex.ErrorCode == 0x80240002)
+                {
+                    Console.WriteLine("\n  The MDM policy appears to be enforced at the Windows Update API level,");
+                    Console.WriteLine("  preventing driver enumeration even with direct Type='Driver' queries.");
+                    Console.WriteLine("  This is expected behavior when ExcludeWUDriversInQualityUpdate is enabled.");
+                    Console.WriteLine("\n  To see blocked drivers, you would need to:");
+                    Console.WriteLine("  1. Temporarily disable the MDM policy");
+                    Console.WriteLine("  2. Contact your IT administrator");
+                    Console.WriteLine("  3. Check Device Manager for devices with available driver updates");
+                }
+                else
+                {
+                    Console.WriteLine($"  {ex.Message}");
+                }
+                Console.ResetColor();
+            }
+
+            return updates;
         }
     }
 

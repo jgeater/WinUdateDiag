@@ -95,6 +95,77 @@ namespace WinUdateDiag
                     }
                 }
 
+                if (options.ListApplicable)
+                {
+                    Console.WriteLine("\n=== Applicable Updates (Not Installed) ===\n");
+                    var manager = new WindowsUpdateManager();
+                    var applicable = manager.GetApplicableUpdates(options.IncludeOptional);
+
+                    if (applicable.Count == 0)
+                    {
+                        Console.WriteLine("No applicable updates found.");
+                    }
+                    else
+                    {
+                        int downloaded = applicable.Count(u => u.IsDownloaded);
+                        int notDownloaded = applicable.Count - downloaded;
+
+                        Console.WriteLine($"Total: {applicable.Count} update(s) - {downloaded} downloaded, {notDownloaded} not downloaded\n");
+
+                        for (int i = 0; i < applicable.Count; i++)
+                        {
+                            Console.WriteLine($"\nUpdate {i + 1} of {applicable.Count}:");
+                            Console.WriteLine(applicable[i].ToString());
+
+                            if (options.Verbose && !string.IsNullOrEmpty(applicable[i].Description))
+                            {
+                                Console.WriteLine($"  Description: {applicable[i].Description}");
+                            }
+
+                            if (!string.IsNullOrEmpty(applicable[i].SupportUrl))
+                            {
+                                Console.WriteLine($"  Support URL: {applicable[i].SupportUrl}");
+                            }
+                        }
+                    }
+                }
+
+                if (options.ListDrivers)
+                {
+                    Console.WriteLine("\n=== Driver Updates Blocked by MDM Policy ===\n");
+                    var manager = new WindowsUpdateManager();
+                    var drivers = manager.GetBlockedDrivers();
+
+                    if (drivers.Count == 0)
+                    {
+                        Console.WriteLine("No blocked driver updates found (or drivers are not excluded by policy).");
+                    }
+                    else
+                    {
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine($"Found {drivers.Count} driver update(s) that are blocked by the ExcludeWUDriversInQualityUpdate policy.\n");
+                        Console.WriteLine("Note: These drivers will not be automatically installed by Windows Update.");
+                        Console.WriteLine("Contact your IT administrator if you need these drivers installed.\n");
+                        Console.ResetColor();
+
+                        for (int i = 0; i < drivers.Count; i++)
+                        {
+                            Console.WriteLine($"\nDriver Update {i + 1} of {drivers.Count}:");
+                            Console.WriteLine(drivers[i].ToString());
+
+                            if (options.Verbose && !string.IsNullOrEmpty(drivers[i].Description))
+                            {
+                                Console.WriteLine($"  Description: {drivers[i].Description}");
+                            }
+
+                            if (!string.IsNullOrEmpty(drivers[i].SupportUrl))
+                            {
+                                Console.WriteLine($"  Support URL: {drivers[i].SupportUrl}");
+                            }
+                        }
+                    }
+                }
+
                 if (options.ShowHistory)
                 {
                     Console.WriteLine($"\n=== Update History (Last {options.HistoryCount} entries) ===\n");

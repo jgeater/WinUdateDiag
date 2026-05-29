@@ -12,6 +12,8 @@ namespace WinUdateDiag
         public bool RunDiagnostics { get; set; }
         public bool ListUpdates { get; set; }
         public bool ListPending { get; set; }
+        public bool ListApplicable { get; set; }
+        public bool ListDrivers { get; set; }
         public bool ShowHistory { get; set; }
         public bool IncludeOptional { get; set; }
         public int HistoryCount { get; set; } = 20;
@@ -59,6 +61,16 @@ namespace WinUdateDiag
                         options.ListPending = true;
                         break;
 
+                    case "-ap":
+                    case "--applicable":
+                        options.ListApplicable = true;
+                        break;
+
+                    case "-dr":
+                    case "--drivers":
+                        options.ListDrivers = true;
+                        break;
+
                     case "-hi":
                     case "--history":
                         options.ShowHistory = true;
@@ -85,6 +97,7 @@ namespace WinUdateDiag
                         options.RunDiagnostics = true;
                         options.ListUpdates = true;
                         options.ListPending = true;
+                        options.ListApplicable = true;
                         options.ShowHistory = true;
                         break;
 
@@ -112,6 +125,8 @@ Options:
   -d, --diagnose          Run diagnostics to detect issues
   -l, --list              List available updates
   -p, --pending           List pending (downloaded) updates
+  -ap, --applicable       List applicable updates (not installed)
+  -dr, --drivers          List driver updates blocked by MDM policy
   -hi, --history [count]  Show update history (default: 20 entries)
   -o, --optional          Include optional updates when listing
   -v, --verbose           Show detailed information
@@ -126,6 +141,12 @@ Examples:
 
   WinUpdateDiag.exe --list
       List all available updates
+
+  WinUpdateDiag.exe --applicable
+      List all applicable updates that are not yet installed
+
+  WinUpdateDiag.exe --drivers
+      List driver updates that are blocked by MDM policy
 
   WinUpdateDiag.exe --list --optional
       List all available updates including optional ones

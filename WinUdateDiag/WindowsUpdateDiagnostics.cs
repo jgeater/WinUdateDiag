@@ -33,6 +33,7 @@ namespace WinUdateDiag
             CheckUpdateDatabase();
             CheckNetworkConnectivity();
             CheckSystemIntegrity();
+            CheckFeatureUpdateBlocks();
 
             DisplayResults();
         }
@@ -359,6 +360,110 @@ namespace WinUdateDiag
                     CheckName = "System Integrity",
                     Status = DiagnosticStatus.Warning,
                     Message = $"System integrity check failed: {ex.Message}"
+                });
+            }
+        }
+
+        private void CheckFeatureUpdateBlocks()
+        {
+            try
+            {
+                var blockingSettings = new List<string>();
+
+                // Check for feature update deferrals
+                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"))
+                {
+                    if (key != null)
+                    {
+                        var deferFeatureUpdates = key.GetValue("DeferFeatureUpdates");
+                        if (deferFeatureUpdates != null && Convert.ToInt32(deferFeatureUpdates) == 1)
+                        {
+                            var deferDays = key.GetValue("DeferFeatureUpdatesPeriodInDays");
+                            blockingSettings.Add($"Feature updates deferred by {deferDays ?? "unknown"} days");
+                        }
+
+                        var pauseFeatureUpdates = key.GetValue("PauseFeatureUpdates");
+                        if (pauseFeatureUpdates != null && Convert.ToInt32(pauseFeatureUpdates) == 1)
+                        {
+                            blockingSettings.Add("Feature updates are paused");
+                        }
+
+                        var targetReleaseVersion = key.GetValue("TargetReleaseVersion");
+                        if (targetReleaseVersion != null && Convert.ToInt32(targetReleaseVersion) == 1)
+                        {
+                            var targetVersion = key.GetValue("TargetReleaseVersionInfo");
+                            blockingSettings.Add($"Feature updates limited to version: {targetVersion}");
+                        }
+
+                        var productVersion = key.GetValue("ProductVersion");
+                        if (productVersion != null)
+                        {
+                            blockingSettings.Add($"Product version restricted to: {productVersion}");
+                        }
+                    }
+                }
+
+                // Check Windows Update for Business settings
+                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"))
+                {
+                    if (key != null)
+                    {
+                        var pauseFeatureUpdatesStartTime = key.GetValue("PauseFeatureUpdatesStartTime");
+                        var pauseFeatureUpdatesEndTime = key.GetValue("PauseFeatureUpdatesEndTime");
+
+                        if (pauseFeatureUpdatesStartTime != null && pauseFeatureUpdatesEndTime != null)
+                        {
+                            blockingSettings.Add($"Feature updates paused until: {pauseFeatureUpdatesEndTime}");
+                        }
+
+                        var deferFeatureUpdatesPeriodInDays = key.GetValue("DeferFeatureUpdatesPeriodInDays");
+                        if (deferFeatureUpdatesPeriodInDays != null)
+                        {
+                            blockingSettings.Add($"Feature updates deferred: {deferFeatureUpdatesPeriodInDays} days");
+                        }
+                    }
+                }
+
+                // Check for Windows 10/11 upgrade blocks
+                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"))
+                {
+                    if (key != null)
+                    {
+                        var disableOSUpgrade = key.GetValue("DisableOSUpgrade");
+                        if (disableOSUpgrade != null && Convert.ToInt32(disableOSUpgrade) == 1)
+                        {
+                            blockingSettings.Add("OS upgrades are disabled");
+                        }
+                    }
+                }
+
+                if (blockingSettings.Count > 0)
+                {
+                    _results.Add(new DiagnosticResult
+                    {
+                        CheckName = "Feature Update Restrictions",
+                        Status = DiagnosticStatus.Warning,
+                        Message = $"Found {blockingSettings.Count} setting(s) that may block or limit feature updates:\n      " + string.Join("\n      ", blockingSettings),
+                        Recommendation = "Review these settings if feature updates are needed"
+                    });
+                }
+                else
+                {
+                    _results.Add(new DiagnosticResult
+                    {
+                        CheckName = "Feature Update Restrictions",
+                        Status = DiagnosticStatus.Pass,
+                        Message = "No feature update restrictions found"
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _results.Add(new DiagnosticResult
+                {
+                    CheckName = "Feature Update Restrictions",
+                    Status = DiagnosticStatus.Warning,
+                    Message = $"Could not check feature update restrictions: {ex.Message}"
                 });
             }
         }
