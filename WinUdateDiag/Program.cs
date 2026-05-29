@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Security.Principal;
 using System.Text;
@@ -29,6 +30,22 @@ namespace WinUdateDiag
             {
                 CommandLineOptions.DisplayHelp();
                 return;
+            }
+
+            // Set up file logging if --logall is specified
+            TextWriter originalOut = null;
+            DualWriter dualWriter = null;
+
+            if (options.LogAll)
+            {
+                string logPath = LogPathHelper.DetermineLogPath();
+
+                if (!string.IsNullOrEmpty(logPath))
+                {
+                    originalOut = Console.Out;
+                    dualWriter = new DualWriter(originalOut, logPath);
+                    Console.SetOut(dualWriter);
+                }
             }
 
             try
@@ -168,9 +185,28 @@ namespace WinUdateDiag
 
                 if (options.ShowHistory)
                 {
-                    Console.WriteLine($"\n=== Update History (Last {options.HistoryCount} entries) ===\n");
                     var manager = new WindowsUpdateManager();
-                    var history = manager.GetUpdateHistory(options.HistoryCount);
+                    List<UpdateHistoryInfo> history;
+                    string historyTitle;
+
+                    // Determine which history to retrieve based on options
+                    if (options.DefenderHistoryOnly)
+                    {
+                        historyTitle = $"Defender Update History (Last {options.HistoryCount} entries)";
+                        history = manager.GetDefenderUpdateHistory(options.HistoryCount);
+                    }
+                    else if (options.ExcludeDefenderHistory)
+                    {
+                        historyTitle = $"Update History - Excluding Defender (Last {options.HistoryCount} entries)";
+                        history = manager.GetNonDefenderUpdateHistory(options.HistoryCount);
+                    }
+                    else
+                    {
+                        historyTitle = $"Update History (Last {options.HistoryCount} entries)";
+                        history = manager.GetUpdateHistory(options.HistoryCount);
+                    }
+
+                    Console.WriteLine($"\n=== {historyTitle} ===\n");
 
                     if (history.Count == 0)
                     {
@@ -180,11 +216,32 @@ namespace WinUdateDiag
                     {
                         for (int i = 0; i < history.Count; i++)
                         {
+                            // Color code Defender updates if showing all history
+                            if (!options.DefenderHistoryOnly && !options.ExcludeDefenderHistory && history[i].IsDefenderUpdate)
+                            {
+                                Console.ForegroundColor = ConsoleColor.Cyan;
+                            }
+
                             Console.WriteLine($"\n{i + 1}. {history[i]}");
 
                             if (options.Verbose && !string.IsNullOrEmpty(history[i].Description))
                             {
                                 Console.WriteLine($"   Description: {history[i].Description}");
+                            }
+
+                            Console.ResetColor();
+                        }
+
+                        // Add a note about Defender updates if showing all history
+                        if (!options.DefenderHistoryOnly && !options.ExcludeDefenderHistory)
+                        {
+                            int defenderCount = history.Count(h => h.IsDefenderUpdate);
+                            if (defenderCount > 0)
+                            {
+                                Console.ForegroundColor = ConsoleColor.Cyan;
+                                Console.WriteLine($"\nNote: {defenderCount} Defender/definition update(s) shown in cyan.");
+                                Console.WriteLine("Use --history-exclude-defender to hide them, or --history-defender to show only them.");
+                                Console.ResetColor();
                             }
                         }
                     }
@@ -204,6 +261,17 @@ namespace WinUdateDiag
             }
 
             Console.WriteLine("\n=================================================");
+
+            // Restore original console output and cleanup
+            if (dualWriter != null)
+            {
+                Console.SetOut(originalOut);
+                dualWriter.Dispose();
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("\n✓ Log file written successfully.");
+                Console.ResetColor();
+            }
         }
 
         static bool IsAdministrator()

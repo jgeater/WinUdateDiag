@@ -212,6 +212,127 @@ namespace WinUdateDiag
             return history;
         }
 
+        /// <summary>
+        /// Gets installed Defender/antivirus definition updates history
+        /// </summary>
+        public List<UpdateHistoryInfo> GetDefenderUpdateHistory(int count = 20)
+        {
+            var history = new List<UpdateHistoryInfo>();
+            try
+            {
+                Console.WriteLine($"Retrieving Defender update history (last {count} entries)...");
+
+                IUpdateSearcher searcher = _updateSession.CreateUpdateSearcher();
+                int totalHistory = searcher.GetTotalHistoryCount();
+
+                // We may need to look through more entries to find enough Defender updates
+                int actualCount = Math.Min(count * 10, totalHistory); // Search through more entries
+                IUpdateHistoryEntryCollection historyCollection = searcher.QueryHistory(0, actualCount);
+
+                foreach (IUpdateHistoryEntry entry in historyCollection)
+                {
+                    // Check if this is a Defender/Definition update
+                    string title = entry.Title ?? "";
+                    if (IsDefenderUpdate(title))
+                    {
+                        history.Add(new UpdateHistoryInfo
+                        {
+                            Title = entry.Title,
+                            Date = entry.Date,
+                            Operation = GetOperationText(entry.Operation),
+                            ResultCode = GetResultText(entry.ResultCode),
+                            Description = entry.Description,
+                            UpdateID = entry.UpdateIdentity.UpdateID,
+                            IsDefenderUpdate = true
+                        });
+
+                        // Stop when we have enough Defender updates
+                        if (history.Count >= count)
+                            break;
+                    }
+                }
+
+                Console.WriteLine($"Found {history.Count} Defender update entries");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error retrieving Defender update history: {ex.Message}");
+            }
+
+            return history;
+        }
+
+        /// <summary>
+        /// Gets non-Defender update history (excludes definition updates)
+        /// </summary>
+        public List<UpdateHistoryInfo> GetNonDefenderUpdateHistory(int count = 20)
+        {
+            var history = new List<UpdateHistoryInfo>();
+            try
+            {
+                Console.WriteLine($"Retrieving update history (excluding Defender, last {count} entries)...");
+
+                IUpdateSearcher searcher = _updateSession.CreateUpdateSearcher();
+                int totalHistory = searcher.GetTotalHistoryCount();
+
+                // Search through more entries to find enough non-Defender updates
+                int actualCount = Math.Min(count * 5, totalHistory);
+                IUpdateHistoryEntryCollection historyCollection = searcher.QueryHistory(0, actualCount);
+
+                foreach (IUpdateHistoryEntry entry in historyCollection)
+                {
+                    string title = entry.Title ?? "";
+
+                    // Only include non-Defender updates
+                    if (!IsDefenderUpdate(title))
+                    {
+                        history.Add(new UpdateHistoryInfo
+                        {
+                            Title = entry.Title,
+                            Date = entry.Date,
+                            Operation = GetOperationText(entry.Operation),
+                            ResultCode = GetResultText(entry.ResultCode),
+                            Description = entry.Description,
+                            UpdateID = entry.UpdateIdentity.UpdateID,
+                            IsDefenderUpdate = false
+                        });
+
+                        if (history.Count >= count)
+                            break;
+                    }
+                }
+
+                Console.WriteLine($"Found {history.Count} non-Defender update entries");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error retrieving update history: {ex.Message}");
+            }
+
+            return history;
+        }
+
+        /// <summary>
+        /// Determines if an update is a Defender/antivirus definition update
+        /// </summary>
+        private bool IsDefenderUpdate(string title)
+        {
+            if (string.IsNullOrEmpty(title))
+                return false;
+
+            string lowerTitle = title.ToLower();
+
+            // Check for common Defender/definition update patterns
+            return lowerTitle.Contains("definition update") ||
+                   lowerTitle.Contains("windows defender") ||
+                   lowerTitle.Contains("microsoft defender") ||
+                   lowerTitle.Contains("antivirus") ||
+                   lowerTitle.Contains("anti-virus") ||
+                   lowerTitle.Contains("security intelligence") ||
+                   lowerTitle.Contains("virus and spyware definitions") ||
+                   lowerTitle.Contains("windows malicious software removal");
+        }
+
         private string GetOperationText(WUApiLib.tagUpdateOperation operation)
         {
             switch (operation)
@@ -444,6 +565,7 @@ namespace WinUdateDiag
         public string ResultCode { get; set; }
         public string Description { get; set; }
         public string UpdateID { get; set; }
+        public bool IsDefenderUpdate { get; set; }
 
         public override string ToString()
         {

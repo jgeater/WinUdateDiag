@@ -15,9 +15,12 @@ namespace WinUdateDiag
         public bool ListApplicable { get; set; }
         public bool ListDrivers { get; set; }
         public bool ShowHistory { get; set; }
+        public bool DefenderHistoryOnly { get; set; }
+        public bool ExcludeDefenderHistory { get; set; }
         public bool IncludeOptional { get; set; }
         public int HistoryCount { get; set; } = 20;
         public bool Verbose { get; set; }
+        public bool LogAll { get; set; }
 
         public static CommandLineOptions Parse(string[] args)
         {
@@ -81,6 +84,28 @@ namespace WinUdateDiag
                         }
                         break;
 
+                    case "-hd":
+                    case "--history-defender":
+                        options.ShowHistory = true;
+                        options.DefenderHistoryOnly = true;
+                        if (i + 1 < args.Length && int.TryParse(args[i + 1], out int defCount))
+                        {
+                            options.HistoryCount = defCount;
+                            i++;
+                        }
+                        break;
+
+                    case "-hx":
+                    case "--history-exclude-defender":
+                        options.ShowHistory = true;
+                        options.ExcludeDefenderHistory = true;
+                        if (i + 1 < args.Length && int.TryParse(args[i + 1], out int exCount))
+                        {
+                            options.HistoryCount = exCount;
+                            i++;
+                        }
+                        break;
+
                     case "-o":
                     case "--optional":
                         options.IncludeOptional = true;
@@ -93,6 +118,17 @@ namespace WinUdateDiag
 
                     case "-a":
                     case "--all":
+                        options.GetConfig = true;
+                        options.RunDiagnostics = true;
+                        options.ListUpdates = true;
+                        options.ListPending = true;
+                        options.ListApplicable = true;
+                        options.ShowHistory = true;
+                        break;
+
+                    case "-la":
+                    case "--logall":
+                        options.LogAll = true;
                         options.GetConfig = true;
                         options.RunDiagnostics = true;
                         options.ListUpdates = true;
@@ -120,17 +156,20 @@ WinUpdateDiag - Windows Update Diagnostic Utility
 Usage: WinUpdateDiag.exe [options]
 
 Options:
-  -h, --help              Show this help message
-  -c, --config            Display Windows Update configuration
-  -d, --diagnose          Run diagnostics to detect issues
-  -l, --list              List available updates
-  -p, --pending           List pending (downloaded) updates
-  -ap, --applicable       List applicable updates (not installed)
-  -dr, --drivers          List driver updates blocked by MDM policy
-  -hi, --history [count]  Show update history (default: 20 entries)
-  -o, --optional          Include optional updates when listing
-  -v, --verbose           Show detailed information
-  -a, --all               Run all checks and display all information
+  -h, --help                      Show this help message
+  -c, --config                    Display Windows Update configuration
+  -d, --diagnose                  Run diagnostics to detect issues
+  -l, --list                      List available updates
+  -p, --pending                   List pending (downloaded) updates
+  -ap, --applicable               List applicable updates (not installed)
+  -dr, --drivers                  List driver updates blocked by MDM policy
+  -hi, --history [count]          Show update history (default: 20 entries)
+  -hd, --history-defender [count] Show only Defender updates in history
+  -hx, --history-exclude-defender Show history excluding Defender updates
+  -o, --optional                  Include optional updates when listing
+  -v, --verbose                   Show detailed information
+  -a, --all                       Run all checks and display all information
+  -la, --logall                   Run all checks and log output to file
 
 Examples:
   WinUpdateDiag.exe --config
@@ -148,22 +187,33 @@ Examples:
   WinUpdateDiag.exe --drivers
       List driver updates that are blocked by MDM policy
 
+  WinUpdateDiag.exe --history 50
+      Show last 50 update history entries (including all types)
+
+  WinUpdateDiag.exe --history-defender 30
+      Show last 30 Defender definition updates only
+
+  WinUpdateDiag.exe --history-exclude-defender 20
+      Show last 20 updates excluding Defender definitions
+
   WinUpdateDiag.exe --list --optional
       List all available updates including optional ones
 
   WinUpdateDiag.exe --pending
       List updates that are downloaded but not installed
 
-  WinUpdateDiag.exe --history 50
-      Show last 50 update history entries
-
   WinUpdateDiag.exe --all
       Display configuration, run diagnostics, and list all updates
+
+  WinUpdateDiag.exe --logall
+      Run all checks and log output to C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\WinUdateDiag.log
+      or C:\PKGLOG\WinUdateDiag.log (whichever exists)
 
 Notes:
   - This tool requires administrator privileges for full functionality
   - Some operations may take time depending on network speed
   - Network connectivity is required to search for updates
+  - Defender updates include: definition updates, security intelligence, antivirus updates
 ");
         }
     }

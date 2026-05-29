@@ -7,13 +7,15 @@ A comprehensive C# command-line utility for managing, diagnosing, and monitoring
 - **Configuration Display**: View Windows Update settings, WSUS configuration, service status, and registry key inspection
 - **Diagnostics**: Detect and report common Windows Update issues with detailed error handling
 - **Update Listing**: List available, pending, applicable, and installed updates with improved error handling for common issues
-- **Update History**: View installation history with customizable entry count
+- **Update History**: View installation history with customizable entry count and Defender update filtering
+- **Driver Update Detection**: Identify driver updates blocked by MDM policies
 - **Optional Updates**: Include or exclude optional updates in searches
 - **Registry Reporting**: See all registry keys checked and their values for troubleshooting
 - **Enhanced Error Messages**: Specific guidance for common errors like 0x80240032
 - **Network Testing**: Uses Microsoft's official connectivity test endpoints
 - **Feature Update Blocking Detection**: Identifies policies that prevent feature updates
 - **MDM Policy Reporting**: Shows all MDM-managed update settings for enterprise environments
+- **File Logging**: Automatically log all output to Intune/enterprise log folders for remote troubleshooting
 
 ## Requirements
 
@@ -45,17 +47,20 @@ A comprehensive C# command-line utility for managing, diagnosing, and monitoring
 WinUpdateDiag.exe [options]
 
 Options:
-  -h, --help              Show help message
-  -c, --config            Display Windows Update configuration
-  -d, --diagnose          Run diagnostics to detect issues
-  -l, --list              List available updates
-  -p, --pending           List pending (downloaded) updates
-  -ap, --applicable       List applicable updates (not installed)
-  -dr, --drivers          List driver updates blocked by MDM policy
-  -hi, --history [count]  Show update history (default: 20 entries)
-  -o, --optional          Include optional updates when listing
-  -v, --verbose           Show detailed information
-  -a, --all               Run all checks and display all information
+  -h, --help                      Show help message
+  -c, --config                    Display Windows Update configuration
+  -d, --diagnose                  Run diagnostics to detect issues
+  -l, --list                      List available updates
+  -p, --pending                   List pending (downloaded) updates
+  -ap, --applicable               List applicable updates (not installed)
+  -dr, --drivers                  List driver updates blocked by MDM policy
+  -hi, --history [count]          Show update history (default: 20 entries)
+  -hd, --history-defender [count] Show only Defender updates in history
+  -hx, --history-exclude-defender Show history excluding Defender updates
+  -o, --optional                  Include optional updates when listing
+  -v, --verbose                   Show detailed information
+  -a, --all                       Run all checks and display all information
+  -la, --logall                   Run all checks and log output to file
 ```
 
 ### Examples
@@ -133,7 +138,33 @@ Shows driver updates that are available but blocked by the `ExcludeWUDriversInQu
 ```cmd
 WinUpdateDiag.exe --history 50
 ```
-Displays the last 50 update installation entries.
+Displays the last 50 update installation entries (all types).
+
+When viewing all history, Defender updates are shown in **cyan** for easy identification.
+
+#### View Only Defender Updates History
+```cmd
+WinUpdateDiag.exe --history-defender 30
+```
+Shows only the last 30 Microsoft Defender definition/security intelligence updates. Useful for:
+- Verifying Defender definitions are updating regularly
+- Troubleshooting Defender update issues
+- Filtering out the frequent Defender updates to see other updates more easily
+
+#### View History Excluding Defender Updates
+```cmd
+WinUpdateDiag.exe --history-exclude-defender 20
+```
+Shows the last 20 updates excluding Defender/definition updates. Useful for:
+- Viewing quality updates, feature updates, and other important updates
+- Reducing clutter from frequent Defender definition updates
+- Focusing on system updates that may require reboots
+
+**What counts as a Defender update:**
+- Definition Updates for Windows Defender
+- Security Intelligence Updates
+- Antivirus definition updates
+- Windows Malicious Software Removal Tool
 
 #### Run All Checks
 ```cmd
@@ -146,6 +177,22 @@ Performs all operations: configuration, diagnostics, list updates, pending updat
 WinUpdateDiag.exe --list --verbose
 ```
 Shows additional details including full descriptions and support URLs.
+
+#### Run All Checks with Logging
+```cmd
+WinUpdateDiag.exe --logall
+```
+Runs all checks (same as `--all`) and logs the complete output to a file. The log file will be created in:
+- `C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\WinUdateDiag.log` (if directory exists)
+- `C:\PKGLOG\WinUdateDiag.log` (fallback if above doesn't exist)
+
+This is particularly useful for:
+- **Enterprise environments**: Intune/MDM managed devices with centralized log collection
+- **Remote troubleshooting**: Capturing complete diagnostic output for later analysis
+- **Automated scripts**: Running diagnostics via scheduled tasks or deployment scripts
+- **Documentation**: Creating a record of the system's update status at a specific point in time
+
+**Note:** Output is written to both the console and the log file simultaneously. The log file is overwritten on each run, so previous logs are not preserved.
 
 ## Diagnostic Checks
 
@@ -359,12 +406,16 @@ This tool provides similar functionality to PSWindowsUpdate cmdlets:
 |----------------|---------------|
 | Get-WindowsUpdate | --list or --applicable |
 | Get-WUSettings | --config |
-| Get-WUHistory | --history |
+| Get-WUHistory | --history, --history-defender, --history-exclude-defender |
 | - | --diagnose |
 | - | --pending |
 | - | --drivers |
+| - | --logall |
 
-**Note**: The `--applicable` option is most similar to PSWindowsUpdate's `Get-WindowsUpdate` behavior, showing all updates that can be installed.
+**Notes**: 
+- The `--applicable` option is most similar to PSWindowsUpdate's `Get-WindowsUpdate` behavior, showing all updates that can be installed.
+- The history filtering options (`--history-defender`, `--history-exclude-defender`) provide more granular control than PSWindowsUpdate for filtering Defender definition updates.
+- The `--logall` option provides automatic file logging to enterprise log directories (Intune/custom deployment folders), making it ideal for remote troubleshooting and automated monitoring.
 
 ## License
 
