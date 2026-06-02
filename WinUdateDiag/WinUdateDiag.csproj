@@ -33,7 +33,7 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <PropertyGroup>
-    <ApplicationIcon>DownloadSoftwareIcon.ico</ApplicationIcon>
+    <ApplicationIcon>windows_update.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
@@ -77,7 +77,7 @@
     <None Include="SETUP.md" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="DownloadSoftwareIcon.ico" />
+    <Content Include="windows_update.ico" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
