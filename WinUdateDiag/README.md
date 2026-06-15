@@ -182,17 +182,23 @@ Shows additional details including full descriptions and support URLs.
 ```cmd
 WinUpdateDiag.exe --logall
 ```
-Runs all checks (same as `--all`) and logs the complete output to a file. The log file will be created in:
+Runs all checks (same as `--all`) and logs the complete output to file(s). Log files will be created in:
 - `C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\WinUdateDiag.log` (if directory exists)
-- `C:\PKGLOG\WinUdateDiag.log` (fallback if above doesn't exist)
+- `C:\PKGLOG\WinUdateDiag.log` (always created, directory created if needed)
+
+**Important:** Logs are written to **BOTH** locations simultaneously when both are available.
 
 This is particularly useful for:
 - **Enterprise environments**: Intune/MDM managed devices with centralized log collection
 - **Remote troubleshooting**: Capturing complete diagnostic output for later analysis
 - **Automated scripts**: Running diagnostics via scheduled tasks or deployment scripts
 - **Documentation**: Creating a record of the system's update status at a specific point in time
+- **Redundancy**: Multiple log locations ensure logs are preserved even if one location is unavailable
 
-**Note:** Output is written to both the console and the log file simultaneously. The log file is overwritten on each run, so previous logs are not preserved.
+**Notes:** 
+- Output is written to the console and all log files simultaneously
+- Log files are overwritten on each run (previous logs are not preserved)
+- `C:\PKGLOG` directory is automatically created if it doesn't exist
 
 ## Diagnostic Checks
 
@@ -273,6 +279,10 @@ The configuration display shows:
   - `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update` - Auto Update settings
   - `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\Results\Download` - Download results
   - `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\Results\Search` - Search results
+  - `HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\Update` - MDM update policies
+  - `HKLM\SOFTWARE\Microsoft\Enrollments` - MDM enrollment information
+
+**Note:** All registry access uses the 64-bit registry view to avoid WOW6432Node redirection, ensuring accurate policy detection on 64-bit systems.
 
 ## Update Information Displayed
 
@@ -303,6 +313,7 @@ The tool provides three different views of updates:
 - **Reboot detection**: Uses `InstallationBehavior.RebootBehavior` to determine if reboot is required
 - **Error handling**: Provides specific messages for common COM errors (0x80240032, 0x80240002, 0x80240437)
 - **Fallback search**: If advanced search criteria fail, falls back to simpler criteria
+- **Registry access**: All registry operations use 64-bit registry view (`RegistryView.Registry64`) to avoid WOW6432Node redirection on 64-bit systems
 
 ## Exit Codes
 

@@ -58,7 +58,8 @@ namespace WinUdateDiag
             {
                 // Check Windows Update Policy settings
                 string keyPath = @"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate";
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(keyPath))
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (RegistryKey key = baseKey.OpenSubKey(keyPath))
                 {
                     var keyInfo = new RegistryKeyInfo
                     {
@@ -84,7 +85,8 @@ namespace WinUdateDiag
 
                 // Check Windows Update Auto Update Policy settings
                 keyPath = @"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU";
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(keyPath))
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (RegistryKey key = baseKey.OpenSubKey(keyPath))
                 {
                     var keyInfo = new RegistryKeyInfo
                     {
@@ -117,7 +119,8 @@ namespace WinUdateDiag
 
                 // Check Windows Update Auto Update settings
                 keyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update";
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(keyPath))
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (RegistryKey key = baseKey.OpenSubKey(keyPath))
                 {
                     var keyInfo = new RegistryKeyInfo
                     {
@@ -137,7 +140,8 @@ namespace WinUdateDiag
 
                 // Check last download success
                 keyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\Results\Download";
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(keyPath))
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (RegistryKey key = baseKey.OpenSubKey(keyPath))
                 {
                     var keyInfo = new RegistryKeyInfo
                     {
@@ -156,7 +160,8 @@ namespace WinUdateDiag
 
                 // Check last search success
                 keyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\Results\Search";
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey(keyPath))
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (RegistryKey key = baseKey.OpenSubKey(keyPath))
                 {
                     var keyInfo = new RegistryKeyInfo
                     {
@@ -335,7 +340,8 @@ namespace WinUdateDiag
             try
             {
                 // Check MDM provider information - validate it's a real active enrollment
-                using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Enrollments"))
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var key = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Enrollments"))
                 {
                     if (key != null)
                     {
@@ -494,7 +500,8 @@ namespace WinUdateDiag
                 }
 
                 // Check Windows Update for Business settings
-                using (var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"))
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var key = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"))
                 {
                     if (key != null)
                     {
@@ -529,19 +536,22 @@ namespace WinUdateDiag
                     @"SOFTWARE\Microsoft\Provisioning\OMADM\Accounts"
                 };
 
-                foreach (var keyPath in intuneKeys)
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
                 {
-                    using (var key = Registry.LocalMachine.OpenSubKey(keyPath))
+                    foreach (var keyPath in intuneKeys)
                     {
-                        if (key != null)
+                        using (var key = baseKey.OpenSubKey(keyPath))
                         {
-                            if (!MDMPolicies.Any(p => p.Contains("Intune Management")))
+                            if (key != null)
                             {
-                                MDMPolicies.Add("\n=== Intune Management ===");
-                                MDMPolicies.Add($"Intune Management Extension detected");
-                                HasMDMPolicies = true;
+                                if (!MDMPolicies.Any(p => p.Contains("Intune Management")))
+                                {
+                                    MDMPolicies.Add("\n=== Intune Management ===");
+                                    MDMPolicies.Add($"Intune Management Extension detected");
+                                    HasMDMPolicies = true;
+                                }
+                                break;
                             }
-                            break;
                         }
                     }
                 }

@@ -206,8 +206,9 @@ Examples:
       Display configuration, run diagnostics, and list all updates
 
   WinUpdateDiag.exe --logall
-      Run all checks and log output to C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\WinUdateDiag.log
-      or C:\PKGLOG\WinUdateDiag.log (whichever exists)
+      Run all checks and log output to multiple locations:
+      - C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\WinUdateDiag.log (if available)
+      - C:\PKGLOG\WinUdateDiag.log (always created, directory auto-created if needed)
 
 Notes:
   - This tool requires administrator privileges for full functionality

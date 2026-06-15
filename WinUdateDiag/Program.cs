@@ -38,12 +38,12 @@ namespace WinUdateDiag
 
             if (options.LogAll)
             {
-                string logPath = LogPathHelper.DetermineLogPath();
+                var logPaths = LogPathHelper.DetermineLogPaths();
 
-                if (!string.IsNullOrEmpty(logPath))
+                if (logPaths.Count > 0)
                 {
                     originalOut = Console.Out;
-                    dualWriter = new DualWriter(originalOut, logPath);
+                    dualWriter = new DualWriter(originalOut, logPaths);
                     Console.SetOut(dualWriter);
                 }
             }

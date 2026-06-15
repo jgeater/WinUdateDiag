@@ -1,42 +1,56 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace WinUdateDiag
 {
     /// <summary>
-    /// Custom TextWriter that writes to both console and file
+    /// Custom TextWriter that writes to both console and multiple files
     /// </summary>
     public class DualWriter : TextWriter
     {
         private readonly TextWriter _consoleWriter;
-        private readonly StreamWriter _fileWriter;
+        private readonly List<StreamWriter> _fileWriters;
 
-        public DualWriter(TextWriter consoleWriter, string logFilePath)
+        public DualWriter(TextWriter consoleWriter, List<string> logFilePaths)
         {
             _consoleWriter = consoleWriter;
+            _fileWriters = new List<StreamWriter>();
 
-            try
+            foreach (string logFilePath in logFilePaths)
             {
-                // Ensure directory exists
-                string directory = Path.GetDirectoryName(logFilePath);
-                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                try
                 {
-                    Directory.CreateDirectory(directory);
+                    // Ensure directory exists
+                    string directory = Path.GetDirectoryName(logFilePath);
+                    if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                        _consoleWriter.WriteLine($"✓ Created directory: {directory}");
+                    }
+
+                    // Open file for writing (overwrite if exists)
+                    var fileWriter = new StreamWriter(logFilePath, false, Encoding.UTF8);
+                    fileWriter.AutoFlush = true;
+
+                    // Write session header
+                    string header = $"{'=',60}\nWinUpdateDiag Session Started: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{'=',60}\n";
+                    fileWriter.Write(header);
+
+                    _fileWriters.Add(fileWriter);
+                    _consoleWriter.WriteLine($"✓ Logging to: {logFilePath}");
                 }
-
-                // Open file for writing (overwrite if exists)
-                _fileWriter = new StreamWriter(logFilePath, false, Encoding.UTF8);
-                _fileWriter.AutoFlush = true;
-
-                // Write session header
-                string header = $"{'=',60}\nWinUpdateDiag Session Started: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{'=',60}\n";
-                _fileWriter.Write(header);
+                catch (Exception ex)
+                {
+                    _consoleWriter.WriteLine($"\nWarning: Could not create log file at {logFilePath}");
+                    _consoleWriter.WriteLine($"Error: {ex.Message}");
+                }
             }
-            catch (Exception ex)
+
+            if (_fileWriters.Count == 0)
             {
-                _consoleWriter.WriteLine($"\nWarning: Could not create log file at {logFilePath}");
-                _consoleWriter.WriteLine($"Error: {ex.Message}");
                 _consoleWriter.WriteLine("Continuing without file logging...\n");
             }
         }
@@ -46,36 +60,51 @@ namespace WinUdateDiag
         public override void Write(char value)
         {
             _consoleWriter.Write(value);
-            _fileWriter?.Write(value);
+            foreach (var fileWriter in _fileWriters)
+            {
+                fileWriter?.Write(value);
+            }
         }
 
         public override void Write(string value)
         {
             _consoleWriter.Write(value);
-            _fileWriter?.Write(value);
+            foreach (var fileWriter in _fileWriters)
+            {
+                fileWriter?.Write(value);
+            }
         }
 
         public override void WriteLine(string value)
         {
             _consoleWriter.WriteLine(value);
-            _fileWriter?.WriteLine(value);
+            foreach (var fileWriter in _fileWriters)
+            {
+                fileWriter?.WriteLine(value);
+            }
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && _fileWriter != null)
+            if (disposing && _fileWriters.Count > 0)
             {
-                try
+                string footer = $"\n{'=',60}\nSession Ended: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{'=',60}\n";
+
+                foreach (var fileWriter in _fileWriters)
                 {
-                    string footer = $"\n{'=',60}\nSession Ended: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{'=',60}\n";
-                    _fileWriter.Write(footer);
-                    _fileWriter.Flush();
-                    _fileWriter.Dispose();
+                    try
+                    {
+                        fileWriter.Write(footer);
+                        fileWriter.Flush();
+                        fileWriter.Dispose();
+                    }
+                    catch
+                    {
+                        // Ignore errors during cleanup
+                    }
                 }
-                catch
-                {
-                    // Ignore errors during cleanup
-                }
+
+                _fileWriters.Clear();
             }
 
             base.Dispose(disposing);
@@ -83,43 +112,61 @@ namespace WinUdateDiag
     }
 
     /// <summary>
-    /// Helper class to determine log file path
+    /// Helper class to determine log file paths
     /// </summary>
     public static class LogPathHelper
     {
-        public static string DetermineLogPath()
+        public static List<string> DetermineLogPaths()
         {
-            // Check Intune Management Extension logs directory first
+            var logPaths = new List<string>();
+
+            // Check/Create Intune Management Extension logs directory
             string intuneLogsPath = @"C:\ProgramData\Microsoft\IntuneManagementExtension\Logs";
             if (Directory.Exists(intuneLogsPath))
             {
                 string logPath = Path.Combine(intuneLogsPath, "WinUdateDiag.log");
+                logPaths.Add(logPath);
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"✓ Logging to: {logPath}\n");
+                Console.WriteLine($"✓ Logging to: {logPath}");
                 Console.ResetColor();
-                return logPath;
             }
 
-            // Check PKGLOG directory
+            // Always add PKGLOG directory (create if it doesn't exist)
             string pkgLogPath = @"C:\PKGLOG";
-            if (Directory.Exists(pkgLogPath))
+            try
             {
+                if (!Directory.Exists(pkgLogPath))
+                {
+                    Directory.CreateDirectory(pkgLogPath);
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"✓ Created directory: {pkgLogPath}");
+                    Console.ResetColor();
+                }
+
                 string logPath = Path.Combine(pkgLogPath, "WinUdateDiag.log");
+                logPaths.Add(logPath);
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"✓ Logging to: {logPath}\n");
+                Console.WriteLine($"✓ Logging to: {logPath}");
                 Console.ResetColor();
-                return logPath;
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"Warning: Could not create/access {pkgLogPath}");
+                Console.WriteLine($"Error: {ex.Message}");
+                Console.ResetColor();
             }
 
-            // No valid directory found
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("Warning: No valid log directory found.");
-            Console.WriteLine("Checked paths:");
-            Console.WriteLine("  - C:\\ProgramData\\Microsoft\\IntuneManagementExtension\\Logs");
-            Console.WriteLine("  - C:\\PKGLOG");
-            Console.WriteLine("Continuing without file logging...\n");
-            Console.ResetColor();
-            return null;
+            if (logPaths.Count == 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("Warning: No valid log directories available.");
+                Console.WriteLine("Continuing without file logging...");
+                Console.ResetColor();
+            }
+
+            Console.WriteLine();
+            return logPaths;
         }
     }
 }

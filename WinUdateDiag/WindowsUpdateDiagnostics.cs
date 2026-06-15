@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Management;
 using System.ServiceProcess;
+using Microsoft.Win32;
 
 namespace WinUdateDiag
 {
@@ -152,34 +153,83 @@ namespace WinUdateDiag
         {
             bool rebootPending = false;
             string reason = "";
+            List<string> detectedKeys = new List<string>();
 
             try
             {
-                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending"))
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var key = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending"))
                 {
                     if (key != null)
                     {
                         rebootPending = true;
                         reason = "Component Based Servicing";
+                        detectedKeys.Add(@"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending");
                     }
                 }
 
-                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"))
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var key = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"))
                 {
                     if (key != null)
                     {
                         rebootPending = true;
                         reason = string.IsNullOrEmpty(reason) ? "Windows Update" : reason + ", Windows Update";
+                        detectedKeys.Add(@"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired");
+                    }
+                }
+
+                // Check for pending file rename operations (common indicator of pending reboot)
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var key = baseKey.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Session Manager"))
+                {
+                    if (key != null)
+                    {
+                        var pendingFileRenameOperations = key.GetValue("PendingFileRenameOperations");
+                        if (pendingFileRenameOperations != null)
+                        {
+                            rebootPending = true;
+                            reason = string.IsNullOrEmpty(reason) ? "Pending file operations" : reason + ", Pending file operations";
+                            detectedKeys.Add(@"HKLM\SYSTEM\CurrentControlSet\Control\Session Manager [PendingFileRenameOperations]");
+                        }
+                    }
+                }
+
+                // Check for pending computer rename
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var key = baseKey.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\ComputerName\ActiveComputerName"))
+                {
+                    if (key != null)
+                    {
+                        var computerName = key.GetValue("ComputerName") as string;
+
+                        using (var pendingKey = baseKey.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName"))
+                        {
+                            if (pendingKey != null)
+                            {
+                                var pendingComputerName = pendingKey.GetValue("ComputerName") as string;
+
+                                if (!string.IsNullOrEmpty(computerName) && 
+                                    !string.IsNullOrEmpty(pendingComputerName) && 
+                                    !computerName.Equals(pendingComputerName, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    rebootPending = true;
+                                    reason = string.IsNullOrEmpty(reason) ? "Computer rename pending" : reason + ", Computer rename pending";
+                                    detectedKeys.Add(@"HKLM\SYSTEM\CurrentControlSet\Control\ComputerName\ComputerName");
+                                }
+                            }
+                        }
                     }
                 }
 
                 if (rebootPending)
                 {
+                    string keyList = "\n  Registry keys detected:\n  - " + string.Join("\n  - ", detectedKeys);
                     _results.Add(new DiagnosticResult
                     {
                         CheckName = "Pending Reboot",
                         Status = DiagnosticStatus.Warning,
-                        Message = $"System reboot is pending due to: {reason}",
+                        Message = $"System reboot is pending due to: {reason}{keyList}",
                         Recommendation = "Restart the computer to complete previous updates"
                     });
                 }
@@ -371,7 +421,8 @@ namespace WinUdateDiag
                 var blockingSettings = new List<string>();
 
                 // Check for feature update deferrals
-                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"))
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var key = baseKey.OpenSubKey(@"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"))
                 {
                     if (key != null)
                     {
@@ -404,7 +455,8 @@ namespace WinUdateDiag
                 }
 
                 // Check Windows Update for Business settings
-                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"))
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var key = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"))
                 {
                     if (key != null)
                     {
@@ -425,7 +477,8 @@ namespace WinUdateDiag
                 }
 
                 // Check for Windows 10/11 upgrade blocks
-                using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"))
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var key = baseKey.OpenSubKey(@"SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"))
                 {
                     if (key != null)
                     {
