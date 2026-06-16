@@ -186,62 +186,117 @@ namespace WinUdateDiag
                 if (options.ShowHistory)
                 {
                     var manager = new WindowsUpdateManager();
-                    List<UpdateHistoryInfo> history;
-                    string historyTitle;
 
-                    // Determine which history to retrieve based on options
-                    if (options.DefenderHistoryOnly)
-                    {
-                        historyTitle = $"Defender Update History (Last {options.HistoryCount} entries)";
-                        history = manager.GetDefenderUpdateHistory(options.HistoryCount);
-                    }
-                    else if (options.ExcludeDefenderHistory)
-                    {
-                        historyTitle = $"Update History - Excluding Defender (Last {options.HistoryCount} entries)";
-                        history = manager.GetNonDefenderUpdateHistory(options.HistoryCount);
-                    }
-                    else
-                    {
-                        historyTitle = $"Update History (Last {options.HistoryCount} entries)";
-                        history = manager.GetUpdateHistory(options.HistoryCount);
-                    }
+                    // Check if this is --all or --logall (no explicit history filter flags)
+                    bool isAllOrLogAll = (options.GetConfig && options.RunDiagnostics && options.ListUpdates && 
+                                          options.ListPending && options.ListApplicable && 
+                                          !options.DefenderHistoryOnly && !options.ExcludeDefenderHistory);
 
-                    Console.WriteLine($"\n=== {historyTitle} ===\n");
+                    if (isAllOrLogAll)
+                    {
+                        // For --all and --logall: Show last 5 non-Defender and last 5 Defender separately
+                        Console.WriteLine($"\n=== Update History - Non-Defender (Last 5 entries) ===\n");
+                        var nonDefenderHistory = manager.GetNonDefenderUpdateHistory(5);
 
-                    if (history.Count == 0)
-                    {
-                        Console.WriteLine("No update history available.");
-                    }
-                    else
-                    {
-                        for (int i = 0; i < history.Count; i++)
+                        if (nonDefenderHistory.Count == 0)
                         {
-                            // Color code Defender updates if showing all history
-                            if (!options.DefenderHistoryOnly && !options.ExcludeDefenderHistory && history[i].IsDefenderUpdate)
+                            Console.WriteLine("No non-Defender update history available.");
+                        }
+                        else
+                        {
+                            for (int i = 0; i < nonDefenderHistory.Count; i++)
                             {
-                                Console.ForegroundColor = ConsoleColor.Cyan;
+                                Console.WriteLine($"\n{i + 1}. {nonDefenderHistory[i]}");
+
+                                if (options.Verbose && !string.IsNullOrEmpty(nonDefenderHistory[i].Description))
+                                {
+                                    Console.WriteLine($"   Description: {nonDefenderHistory[i].Description}");
+                                }
                             }
-
-                            Console.WriteLine($"\n{i + 1}. {history[i]}");
-
-                            if (options.Verbose && !string.IsNullOrEmpty(history[i].Description))
-                            {
-                                Console.WriteLine($"   Description: {history[i].Description}");
-                            }
-
-                            Console.ResetColor();
                         }
 
-                        // Add a note about Defender updates if showing all history
-                        if (!options.DefenderHistoryOnly && !options.ExcludeDefenderHistory)
+                        Console.WriteLine($"\n=== Update History - Defender (Last 5 entries) ===\n");
+                        var defenderHistory = manager.GetDefenderUpdateHistory(5);
+
+                        if (defenderHistory.Count == 0)
                         {
-                            int defenderCount = history.Count(h => h.IsDefenderUpdate);
-                            if (defenderCount > 0)
+                            Console.WriteLine("No Defender update history available.");
+                        }
+                        else
+                        {
+                            Console.ForegroundColor = ConsoleColor.Cyan;
+                            for (int i = 0; i < defenderHistory.Count; i++)
                             {
-                                Console.ForegroundColor = ConsoleColor.Cyan;
-                                Console.WriteLine($"\nNote: {defenderCount} Defender/definition update(s) shown in cyan.");
-                                Console.WriteLine("Use --history-exclude-defender to hide them, or --history-defender to show only them.");
+                                Console.WriteLine($"\n{i + 1}. {defenderHistory[i]}");
+
+                                if (options.Verbose && !string.IsNullOrEmpty(defenderHistory[i].Description))
+                                {
+                                    Console.WriteLine($"   Description: {defenderHistory[i].Description}");
+                                }
+                            }
+                            Console.ResetColor();
+                        }
+                    }
+                    else
+                    {
+                        // Standard history display for explicit --history options
+                        List<UpdateHistoryInfo> history;
+                        string historyTitle;
+
+                        // Determine which history to retrieve based on options
+                        if (options.DefenderHistoryOnly)
+                        {
+                            historyTitle = $"Defender Update History (Last {options.HistoryCount} entries)";
+                            history = manager.GetDefenderUpdateHistory(options.HistoryCount);
+                        }
+                        else if (options.ExcludeDefenderHistory)
+                        {
+                            historyTitle = $"Update History - Excluding Defender (Last {options.HistoryCount} entries)";
+                            history = manager.GetNonDefenderUpdateHistory(options.HistoryCount);
+                        }
+                        else
+                        {
+                            historyTitle = $"Update History (Last {options.HistoryCount} entries)";
+                            history = manager.GetUpdateHistory(options.HistoryCount);
+                        }
+
+                        Console.WriteLine($"\n=== {historyTitle} ===\n");
+
+                        if (history.Count == 0)
+                        {
+                            Console.WriteLine("No update history available.");
+                        }
+                        else
+                        {
+                            for (int i = 0; i < history.Count; i++)
+                            {
+                                // Color code Defender updates if showing all history
+                                if (!options.DefenderHistoryOnly && !options.ExcludeDefenderHistory && history[i].IsDefenderUpdate)
+                                {
+                                    Console.ForegroundColor = ConsoleColor.Cyan;
+                                }
+
+                                Console.WriteLine($"\n{i + 1}. {history[i]}");
+
+                                if (options.Verbose && !string.IsNullOrEmpty(history[i].Description))
+                                {
+                                    Console.WriteLine($"   Description: {history[i].Description}");
+                                }
+
                                 Console.ResetColor();
+                            }
+
+                            // Add a note about Defender updates if showing all history
+                            if (!options.DefenderHistoryOnly && !options.ExcludeDefenderHistory)
+                            {
+                                int defenderCount = history.Count(h => h.IsDefenderUpdate);
+                                if (defenderCount > 0)
+                                {
+                                    Console.ForegroundColor = ConsoleColor.Cyan;
+                                    Console.WriteLine($"\nNote: {defenderCount} Defender/definition update(s) shown in cyan.");
+                                    Console.WriteLine("Use --history-exclude-defender to hide them, or --history-defender to show only them.");
+                                    Console.ResetColor();
+                                }
                             }
                         }
                     }
