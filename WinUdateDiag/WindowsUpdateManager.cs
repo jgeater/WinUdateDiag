@@ -276,7 +276,8 @@ namespace WinUdateDiag
                 int totalHistory = searcher.GetTotalHistoryCount();
 
                 // Search through more entries to find enough non-Defender updates
-                int actualCount = Math.Min(count * 5, totalHistory);
+                // Use a larger multiplier since Defender updates are frequent
+                int actualCount = Math.Min(count * 20, totalHistory);
                 IUpdateHistoryEntryCollection historyCollection = searcher.QueryHistory(0, actualCount);
 
                 foreach (IUpdateHistoryEntry entry in historyCollection)
