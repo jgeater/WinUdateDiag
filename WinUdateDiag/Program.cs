@@ -188,8 +188,8 @@ namespace WinUdateDiag
                     var manager = new WindowsUpdateManager();
 
                     // Check if this is --all or --logall (no explicit history filter flags)
-                    bool isAllOrLogAll = (options.GetConfig && options.RunDiagnostics && options.ListUpdates && 
-                                          options.ListPending && options.ListApplicable && 
+                    bool isAllOrLogAll = (options.GetConfig && options.RunDiagnostics && 
+                                          !options.ListUpdates && !options.ListPending && !options.ListApplicable &&
                                           !options.DefenderHistoryOnly && !options.ExcludeDefenderHistory);
 
                     if (isAllOrLogAll)

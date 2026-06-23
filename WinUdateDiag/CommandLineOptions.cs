@@ -120,9 +120,6 @@ namespace WinUdateDiag
                     case "--all":
                         options.GetConfig = true;
                         options.RunDiagnostics = true;
-                        options.ListUpdates = true;
-                        options.ListPending = true;
-                        options.ListApplicable = true;
                         options.ShowHistory = true;
                         break;
 
@@ -131,9 +128,6 @@ namespace WinUdateDiag
                         options.LogAll = true;
                         options.GetConfig = true;
                         options.RunDiagnostics = true;
-                        options.ListUpdates = true;
-                        options.ListPending = true;
-                        options.ListApplicable = true;
                         options.ShowHistory = true;
                         break;
 
@@ -168,7 +162,7 @@ Options:
   -hx, --history-exclude-defender Show history excluding Defender updates
   -o, --optional                  Include optional updates when listing
   -v, --verbose                   Show detailed information
-  -a, --all                       Run all checks and display all information
+  -a, --all                       Run config, diagnostics, and show update history
   -la, --logall                   Run all checks and log output to file
 
 Examples:
@@ -203,12 +197,14 @@ Examples:
       List updates that are downloaded but not installed
 
   WinUpdateDiag.exe --all
-      Display configuration, run diagnostics, and list all updates
+      Display configuration, run diagnostics, and show update history
+      (last 5 non-Defender and last 5 Defender updates separately)
 
   WinUpdateDiag.exe --logall
-      Run all checks and log output to multiple locations:
+      Run all checks (config, diagnostics, history) and log to file:
       - C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\WinUdateDiag.log (if available)
       - C:\PKGLOG\WinUdateDiag.log (always created, directory auto-created if needed)
+      Use --list, --pending, or --applicable to see full update lists
 
 Notes:
   - This tool requires administrator privileges for full functionality

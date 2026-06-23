@@ -59,7 +59,7 @@ Options:
   -hx, --history-exclude-defender Show history excluding Defender updates
   -o, --optional                  Include optional updates when listing
   -v, --verbose                   Show detailed information
-  -a, --all                       Run all checks and display all information
+  -a, --all                       Run config, diagnostics, and show update history
   -la, --logall                   Run all checks and log output to file
 ```
 
@@ -170,7 +170,12 @@ Shows the last 20 updates excluding Defender/definition updates. Useful for:
 ```cmd
 WinUpdateDiag.exe --all
 ```
-Performs all operations: configuration, diagnostics, list updates, pending updates, applicable updates, and history.
+Performs comprehensive diagnostics and reporting:
+- **Configuration Display**: Windows Update settings, WSUS, MDM policies
+- **Diagnostics**: All diagnostic checks including services, disk space, connectivity, and pending reboots
+- **Update History**: Last 5 non-Defender updates and last 5 Defender updates (shown separately)
+
+This is ideal for getting a complete overview of the system's Windows Update status without listing potentially lengthy available/pending/applicable update lists.
 
 #### Verbose Output
 ```cmd
@@ -182,7 +187,12 @@ Shows additional details including full descriptions and support URLs.
 ```cmd
 WinUpdateDiag.exe --logall
 ```
-Runs all checks (same as `--all`) and logs the complete output to file(s). Log files will be created in:
+Runs comprehensive diagnostics (same as `--all`) and logs the complete output to file(s):
+- **Configuration Display**: Windows Update settings, WSUS, MDM policies
+- **Diagnostics**: All diagnostic checks
+- **Update History**: Last 5 non-Defender updates and last 5 Defender updates (shown separately)
+
+Log files will be created in:
 - `C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\WinUdateDiag.log` (if directory exists)
 - `C:\PKGLOG\WinUdateDiag.log` (always created, directory created if needed)
 
@@ -198,6 +208,7 @@ This is particularly useful for:
 **Notes:** 
 - Output is written to the console and all log files simultaneously
 - Log files are overwritten on each run (previous logs are not preserved)
+- To view full update lists, use individual options: `--list`, `--pending`, or `--applicable`
 - `C:\PKGLOG` directory is automatically created if it doesn't exist
 
 ## Diagnostic Checks
