@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 using WUApiLib;
@@ -184,15 +185,23 @@ namespace WinUdateDiag
             try
             {
                 Console.WriteLine($"Retrieving update history (last {count} entries)...");
-                
+
                 IUpdateSearcher searcher = _updateSession.CreateUpdateSearcher();
                 int totalHistory = searcher.GetTotalHistoryCount();
-                int actualCount = Math.Min(count, totalHistory);
+
+                // Search through many more entries to account for duplicates and filtered items
+                int actualCount = Math.Min(count * 50, totalHistory);
 
                 IUpdateHistoryEntryCollection historyCollection = searcher.QueryHistory(0, actualCount);
 
                 foreach (IUpdateHistoryEntry entry in historyCollection)
                 {
+                    string title = entry.Title ?? "";
+
+                    // Skip filtered updates (noisy packages)
+                    if (ShouldFilterOutUpdate(title))
+                        continue;
+
                     history.Add(new UpdateHistoryInfo
                     {
                         Title = entry.Title,
@@ -202,6 +211,15 @@ namespace WinUdateDiag
                         Description = entry.Description,
                         UpdateID = entry.UpdateIdentity.UpdateID
                     });
+                }
+
+                // Deduplicate by keeping only the most recent entry for each UpdateID
+                history = DeduplicateHistory(history);
+
+                // Take only the requested number of entries
+                if (history.Count > count)
+                {
+                    history = history.Take(count).ToList();
                 }
             }
             catch (Exception ex)
@@ -225,14 +243,19 @@ namespace WinUdateDiag
                 IUpdateSearcher searcher = _updateSession.CreateUpdateSearcher();
                 int totalHistory = searcher.GetTotalHistoryCount();
 
-                // We may need to look through more entries to find enough Defender updates
-                int actualCount = Math.Min(count * 10, totalHistory); // Search through more entries
+                // Search through many more entries to account for duplicates and filtered items
+                int actualCount = Math.Min(count * 50, totalHistory);
                 IUpdateHistoryEntryCollection historyCollection = searcher.QueryHistory(0, actualCount);
 
                 foreach (IUpdateHistoryEntry entry in historyCollection)
                 {
                     // Check if this is a Defender/Definition update
                     string title = entry.Title ?? "";
+
+                    // Skip filtered updates (noisy packages)
+                    if (ShouldFilterOutUpdate(title))
+                        continue;
+
                     if (IsDefenderUpdate(title))
                     {
                         history.Add(new UpdateHistoryInfo
@@ -245,11 +268,16 @@ namespace WinUdateDiag
                             UpdateID = entry.UpdateIdentity.UpdateID,
                             IsDefenderUpdate = true
                         });
-
-                        // Stop when we have enough Defender updates
-                        if (history.Count >= count)
-                            break;
                     }
+                }
+
+                // Deduplicate by keeping only the most recent entry for each UpdateID
+                history = DeduplicateHistory(history);
+
+                // Take only the requested number of entries
+                if (history.Count > count)
+                {
+                    history = history.Take(count).ToList();
                 }
 
                 Console.WriteLine($"Found {history.Count} Defender update entries");
@@ -275,14 +303,18 @@ namespace WinUdateDiag
                 IUpdateSearcher searcher = _updateSession.CreateUpdateSearcher();
                 int totalHistory = searcher.GetTotalHistoryCount();
 
-                // Search through more entries to find enough non-Defender updates
-                // Use a larger multiplier since Defender updates are frequent
-                int actualCount = Math.Min(count * 20, totalHistory);
+                // Search through many more entries to find enough non-Defender updates
+                // Use a much larger multiplier since Defender updates and filtered items are frequent
+                int actualCount = Math.Min(count * 50, totalHistory);
                 IUpdateHistoryEntryCollection historyCollection = searcher.QueryHistory(0, actualCount);
 
                 foreach (IUpdateHistoryEntry entry in historyCollection)
                 {
                     string title = entry.Title ?? "";
+
+                    // Skip filtered updates (noisy packages)
+                    if (ShouldFilterOutUpdate(title))
+                        continue;
 
                     // Only include non-Defender updates
                     if (!IsDefenderUpdate(title))
@@ -297,10 +329,16 @@ namespace WinUdateDiag
                             UpdateID = entry.UpdateIdentity.UpdateID,
                             IsDefenderUpdate = false
                         });
-
-                        if (history.Count >= count)
-                            break;
                     }
+                }
+
+                // Deduplicate by keeping only the most recent entry for each UpdateID
+                history = DeduplicateHistory(history);
+
+                // Take only the requested number of entries
+                if (history.Count > count)
+                {
+                    history = history.Take(count).ToList();
                 }
 
                 Console.WriteLine($"Found {history.Count} non-Defender update entries");
@@ -332,6 +370,47 @@ namespace WinUdateDiag
                    lowerTitle.Contains("security intelligence") ||
                    lowerTitle.Contains("virus and spyware definitions") ||
                    lowerTitle.Contains("windows malicious software removal");
+        }
+
+        /// <summary>
+        /// Determines if an update should be filtered out (noisy packages like WindowsAppRuntime)
+        /// </summary>
+        private bool ShouldFilterOutUpdate(string title)
+        {
+            if (string.IsNullOrEmpty(title))
+                return false;
+
+            string lowerTitle = title.ToLower();
+
+            // Filter out noisy Microsoft Store packages and app runtimes
+            return lowerTitle.Contains("9nrzt3q9r3dl") ||  // Microsoft.WindowsAppRuntime.2
+                   lowerTitle.Contains("windowsappruntime") ||
+                   lowerTitle.Contains("app installer") ||
+                   lowerTitle.Contains("desktop app installer");
+        }
+
+        /// <summary>
+        /// Deduplicates update history by keeping only the most recent entry for each UpdateID
+        /// </summary>
+        private List<UpdateHistoryInfo> DeduplicateHistory(List<UpdateHistoryInfo> history)
+        {
+            if (history.Count == 0)
+                return history;
+
+            // Return in the same order as original list, but without duplicates
+            var result = new List<UpdateHistoryInfo>();
+            var seenIds = new HashSet<string>();
+
+            foreach (var entry in history)
+            {
+                if (!seenIds.Contains(entry.UpdateID))
+                {
+                    result.Add(entry);
+                    seenIds.Add(entry.UpdateID);
+                }
+            }
+
+            return result;
         }
 
         private string GetOperationText(WUApiLib.tagUpdateOperation operation)

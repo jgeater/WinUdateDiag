@@ -7,7 +7,7 @@ A comprehensive C# command-line utility for managing, diagnosing, and monitoring
 - **Configuration Display**: View Windows Update settings, WSUS configuration, service status, and registry key inspection
 - **Diagnostics**: Detect and report common Windows Update issues with detailed error handling
 - **Update Listing**: List available, pending, applicable, and installed updates with improved error handling for common issues
-- **Update History**: View installation history with customizable entry count and Defender update filtering
+- **Update History**: View installation history with customizable entry count, Defender update filtering, and automatic exclusion of noisy Microsoft Store packages
 - **Driver Update Detection**: Identify driver updates blocked by MDM policies
 - **Optional Updates**: Include or exclude optional updates in searches
 - **Registry Reporting**: See all registry keys checked and their values for troubleshooting
@@ -88,10 +88,26 @@ Checks:
 - Available disk space
 - Pending reboot status
 - Update database health
+- **Last Windows Update scan status** (success/failure with error codes if failed)
 - Network connectivity to Microsoft servers
 - System integrity
 - Feature update restrictions (deferrals, pauses, version targeting)
 - MDM policies (Intune, etc.) affecting Windows Update
+
+**What "Last Windows Update Scan Status" Means:**
+
+The diagnostic checks the Windows Update activity from the System event log (Event source: `Microsoft-Windows-WindowsUpdateClient`):
+
+- **Success**: Shows the most recent successful update installation time
+  - Event ID 19: Installation Successful
+  - Event ID 43/44: Scan operations
+- **Failure**: Shows if the last update installation failed
+  - Event ID 20: Installation Failure
+  - Recommendation to check event log details or run troubleshooter
+- **No activity**: If no Windows Update events found in the last 7 days, suggests running Windows Update manually
+
+This event log approach works across all modern Windows versions and provides the most accurate picture of Windows Update activity on your system.
+
 
 #### List Available Updates
 ```cmd
@@ -166,6 +182,20 @@ Shows the last 20 updates excluding Defender/definition updates. Useful for:
 - Antivirus definition updates
 - Windows Malicious Software Removal Tool
 
+**Filtered Updates:**
+
+The following updates are automatically filtered out from history display to reduce clutter:
+
+- **Microsoft.WindowsAppRuntime.2** (`9NRZT3Q9R3DL-Microsoft.WindowsAppRuntime.2`)
+
+  This is the *Windows App Runtime*, a Microsoft Store package that provides core runtime functionality for modern desktop applications built with Windows App SDK (WASDK). It updates frequently (sometimes multiple times per day) as part of Microsoft's Store app infrastructure, not as a system Windows Update. Filtering it out provides a clearer view of actual Windows system and security updates.
+
+- **App Installer/Desktop App Installer**
+
+  These are Microsoft Store installation support packages that update frequently and are not critical system updates.
+
+These packages are still installed on the system and continue to receive updates, but they won't clutter your update history reports.
+
 #### Run All Checks
 ```cmd
 WinUpdateDiag.exe --all
@@ -189,7 +219,16 @@ WinUpdateDiag.exe --logall
 ```
 Runs comprehensive diagnostics (same as `--all`) and logs the complete output to file(s):
 - **Configuration Display**: Windows Update settings, WSUS, MDM policies
-- **Diagnostics**: All diagnostic checks
+- **Diagnostics**: All diagnostic checks including:
+  - Service status checks
+  - Disk space validation
+  - Pending reboot detection
+  - Update database health
+  - **Last Windows Update scan status** (success/failure with error codes)
+  - Network connectivity
+  - System integrity
+  - Feature update restrictions
+  - MDM policy detection
 - **Update History**: Last 5 non-Defender updates and last 5 Defender updates (shown separately)
 
 Log files will be created in:
@@ -384,6 +423,15 @@ Check the "MDM Policies" section to see:
 - What update policies are enforced
 - Active hours configuration
 - Branch readiness settings
+
+### Update History Shows Fewer Entries Than Requested
+If you request 20 update history entries but receive fewer, it may be due to:
+
+1. **Duplicate entries of the same update** - The tool automatically deduplicates history to show each unique update only once
+2. **Filtered noisy packages** - Microsoft Store packages like `Microsoft.WindowsAppRuntime.2` are automatically filtered out to focus on actual system updates
+3. **Actual history size** - The system may have fewer than the requested number of updates in history
+
+To see the full unfiltered count, note that the tool searches and deduplicates a much larger pool (50x the requested count) to ensure you get the requested number of actual updates.
 - Custom update server URLs
 
 ### No Updates Found

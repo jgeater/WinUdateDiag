@@ -32,6 +32,7 @@ namespace WinUdateDiag
             CheckDiskSpace();
             CheckPendingReboot();
             CheckUpdateDatabase();
+            CheckLastScanStatus();
             CheckNetworkConnectivity();
             CheckSystemIntegrity();
             CheckFeatureUpdateBlocks();
@@ -295,6 +296,93 @@ namespace WinUdateDiag
                     CheckName = "Update Database",
                     Status = DiagnosticStatus.Warning,
                     Message = $"Could not check update database: {ex.Message}"
+                });
+            }
+        }
+
+        private void CheckLastScanStatus()
+        {
+            try
+            {
+                // Windows Update scan status is recorded in the System event log with provider "Microsoft-Windows-WindowsUpdateClient"
+                // Event IDs: 19 = Installation Success, 20 = Installation Failure, 43/44 = Scan operations
+                EventLog systemLog = new EventLog("System");
+
+                DateTime earliestTime = DateTime.Now.AddDays(-7); // Check last 7 days
+                EventLogEntryCollection entries = systemLog.Entries;
+
+                // Find the most recent Windows Update event
+                EventLogEntry lastWUEvent = null;
+                foreach (EventLogEntry entry in entries)
+                {
+                    if (entry.Source == "Microsoft-Windows-WindowsUpdateClient" && entry.TimeGenerated >= earliestTime)
+                    {
+                        if (lastWUEvent == null || entry.TimeGenerated > lastWUEvent.TimeGenerated)
+                        {
+                            lastWUEvent = entry;
+                        }
+                    }
+                }
+
+                if (lastWUEvent != null)
+                {
+                    // Event IDs: 19=Success, 20=Failure, 43/44=Scan ops
+                    if (lastWUEvent.EventID == 19)
+                    {
+                        _results.Add(new DiagnosticResult
+                        {
+                            CheckName = "Last Windows Update Scan",
+                            Status = DiagnosticStatus.Pass,
+                            Message = $"Last update successful at {lastWUEvent.TimeGenerated:g}"
+                        });
+                    }
+                    else if (lastWUEvent.EventID == 20)
+                    {
+                        _results.Add(new DiagnosticResult
+                        {
+                            CheckName = "Last Windows Update Scan",
+                            Status = DiagnosticStatus.Warning,
+                            Message = $"Last update failed at {lastWUEvent.TimeGenerated:g}",
+                            Recommendation = "Check event log for details or run Windows Update troubleshooter"
+                        });
+                    }
+                    else if (lastWUEvent.EventID == 43 || lastWUEvent.EventID == 44)
+                    {
+                        _results.Add(new DiagnosticResult
+                        {
+                            CheckName = "Last Windows Update Scan",
+                            Status = DiagnosticStatus.Pass,
+                            Message = $"Last scan activity at {lastWUEvent.TimeGenerated:g} (Event ID: {lastWUEvent.EventID})"
+                        });
+                    }
+                    else
+                    {
+                        _results.Add(new DiagnosticResult
+                        {
+                            CheckName = "Last Windows Update Scan",
+                            Status = DiagnosticStatus.Pass,
+                            Message = $"Last Windows Update activity at {lastWUEvent.TimeGenerated:g} (Event ID: {lastWUEvent.EventID})"
+                        });
+                    }
+                }
+                else
+                {
+                    _results.Add(new DiagnosticResult
+                    {
+                        CheckName = "Last Windows Update Scan",
+                        Status = DiagnosticStatus.Warning,
+                        Message = "No recent Windows Update activity found in event log (last 7 days)",
+                        Recommendation = "Windows Update may need to be triggered manually"
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _results.Add(new DiagnosticResult
+                {
+                    CheckName = "Last Windows Update Scan",
+                    Status = DiagnosticStatus.Error,
+                    Message = $"Error checking scan status: {ex.Message}"
                 });
             }
         }
