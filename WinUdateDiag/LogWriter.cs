@@ -131,29 +131,23 @@ namespace WinUdateDiag
                 Console.ResetColor();
             }
 
-            // Always add PKGLOG directory (create if it doesn't exist)
+            // Only add PKGLOG directory if it already exists (don't create)
             string pkgLogPath = @"C:\PKGLOG";
             try
             {
-                if (!Directory.Exists(pkgLogPath))
+                if (Directory.Exists(pkgLogPath))
                 {
-                    Directory.CreateDirectory(pkgLogPath);
+                    string logPath = Path.Combine(pkgLogPath, "WinUdateDiag.log");
+                    logPaths.Add(logPath);
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"✓ Created directory: {pkgLogPath}");
+                    Console.WriteLine($"✓ Logging to: {logPath}");
                     Console.ResetColor();
                 }
-
-                string logPath = Path.Combine(pkgLogPath, "WinUdateDiag.log");
-                logPaths.Add(logPath);
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"✓ Logging to: {logPath}");
-                Console.ResetColor();
             }
             catch (Exception ex)
             {
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"Warning: Could not create/access {pkgLogPath}");
-                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine($"Warning: Could not access {pkgLogPath}: {ex.Message}");
                 Console.ResetColor();
             }
 

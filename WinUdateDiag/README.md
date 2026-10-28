@@ -109,18 +109,31 @@ The diagnostic checks the Windows Update activity from the System event log (Eve
   - Up to 3 most recent successes shown
   - Helps verify when the system last received updates
 
+- **7-Day Activity Check ⏰ ERROR**: If NO scan or install activity in past 7 days
+  - Critical issue - system has not actively checked for updates
+  - Indicates Windows Update service may be disabled or not running
+  - Recommendation: Check Update settings, restart Windows Update service, or run manual scan
+
 - **24-Hour Failure Alert ⚠️ ERROR**: If ANY Windows Update installations failed in the past 24 hours
   - Prominently displayed as an error condition requiring attention
   - Shows count of failures with timestamps and error codes
   - Up to 3 most recent failures from last 24 hours
   - Indicates recent update problems that need investigation
 
+- **60-Day Microsoft Updates Check 🔐 ERROR**: If NO Microsoft updates (with KB numbers) installed in past 60 days
+  - Indicates system may not be receiving critical security updates
+  - KB numbers identify official Microsoft security and quality updates (vs. Store apps)
+  - Recommendation includes checking Windows Update settings and running updates manually
+  - This is a security-critical check to ensure update currency
+
 - **Recent Failed Installations**: Shows failures from the past 7 days (beyond the urgent 24-hour window)
   - Up to 5 most recent older failures with details
   - Error codes and update names when available
   - Recommendations to check event log or run troubleshooter
 
-- **No activity**: If no Windows Update events found in the last 7 days, suggests running Windows Update manually
+- **Scan Activity Detection**: If system has scan events but no install attempts
+  - Shows system is actively checking for updates
+  - No installations yet may indicate no available updates or pending restart
 
 This event log approach works across all modern Windows versions and provides the most accurate picture of Windows Update activity on your system.
 
@@ -132,15 +145,21 @@ The diagnostic checks four critical Windows services:
 - Cryptographic Services (cryptsvc)
 - Windows Installer Service (msiserver)
 
-For each service, the diagnostic reports:
-- **Error ❌**: Service is **DISABLED**
-  - Recommendation: Re-enable the service with `sc config <servicename> start=auto`
-  - Disabled services will prevent Windows Update from functioning properly
-- **Warning ⚠️**: Service is **STOPPED** but not disabled
-  - Recommendation: Start the service with `net start <servicename>`
-  - Services should be running for normal Windows Update operation
-- **Pass ✓**: Service is **RUNNING**
-  - No action needed
+Service status is determined by both the **startup type** and the **current running state**:
+
+| Startup Type | Service Running? | Status | Meaning |
+|--------------|------------------|--------|---------|
+| **Manual** | Yes or No | **Pass ✓** | User-controlled services are acceptable either way |
+| **Automatic** | Yes | **Pass ✓** | Working as expected |
+| **Automatic** | No | **Error ❌** | Should be running but isn't |
+| **Disabled** | Yes or No | **Error ❌** | Must be enabled for Windows Update |
+| **Missing** | N/A | **Error ❌** | Service not found on system |
+
+**Key Points:**
+- Manual startup services are considered passing regardless of running state (user-controlled)
+- Automatic startup services must be running to pass
+- Disabled services always fail (must be re-enabled)
+- Missing services are treated as errors
 
 
 #### List Available Updates
@@ -269,7 +288,6 @@ Runs comprehensive diagnostics (same as `--all`) and logs the complete output to
 
 Log files will be created in:
 - `C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\WinUdateDiag.log` (if directory exists)
-- `C:\PKGLOG\WinUdateDiag.log` (always created, directory created if needed)
 
 #### Store Diagnostics in Registry
 
@@ -320,7 +338,6 @@ This is particularly useful for:
 - Output is written to the console and all log files simultaneously
 - Log files are overwritten on each run (previous logs are not preserved)
 - To view full update lists, use individual options: `--list`, `--pending`, or `--applicable`
-- `C:\PKGLOG` directory is automatically created if it doesn't exist
 
 ## Diagnostic Checks
 

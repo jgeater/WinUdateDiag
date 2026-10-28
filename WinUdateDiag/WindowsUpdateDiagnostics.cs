@@ -70,10 +70,26 @@ namespace WinUdateDiag
                 {
                     sc.Refresh();
 
-                    // Check if service is disabled by reading the registry
+                    // Check if service exists and get its start mode
                     ServiceStartMode startMode = GetServiceStartMode(serviceName);
 
-                    if (startMode == ServiceStartMode.Disabled)
+                    // Status matrix:
+                    // Manual (running or not) = PASS (user-controlled startup)
+                    // Automatic + Running = PASS (working as expected)
+                    // Automatic + Not Running = ERROR (should be running)
+                    // Disabled (running or not) = ERROR (must be enabled)
+
+                    if (startMode == ServiceStartMode.Manual)
+                    {
+                        // Manual services are PASS whether running or not
+                        _results.Add(new DiagnosticResult
+                        {
+                            CheckName = displayName,
+                            Status = DiagnosticStatus.Pass,
+                            Message = $"{displayName} startup type is Manual ({(sc.Status == ServiceControllerStatus.Running ? "currently running" : "not running")}) - this is acceptable"
+                        });
+                    }
+                    else if (startMode == ServiceStartMode.Disabled)
                     {
                         _results.Add(new DiagnosticResult
                         {
@@ -83,26 +99,50 @@ namespace WinUdateDiag
                             Recommendation = $"Enable the service using: sc config {serviceName} start=auto"
                         });
                     }
-                    else if (sc.Status == ServiceControllerStatus.Running)
+                    else if (startMode == ServiceStartMode.Automatic || startMode == ServiceStartMode.Boot || startMode == ServiceStartMode.System)
                     {
+                        // Automatic startup types must be running
+                        if (sc.Status == ServiceControllerStatus.Running)
+                        {
+                            _results.Add(new DiagnosticResult
+                            {
+                                CheckName = displayName,
+                                Status = DiagnosticStatus.Pass,
+                                Message = $"{displayName} is set to {startMode} and is running"
+                            });
+                        }
+                        else
+                        {
+                            _results.Add(new DiagnosticResult
+                            {
+                                CheckName = displayName,
+                                Status = DiagnosticStatus.Error,
+                                Message = $"{displayName} is set to {startMode} but is not running (Status: {sc.Status})",
+                                Recommendation = $"Start the service using: net start {serviceName}"
+                            });
+                        }
+                    }
+                    else
+                    {
+                        // Unknown or other start modes
                         _results.Add(new DiagnosticResult
                         {
                             CheckName = displayName,
                             Status = DiagnosticStatus.Pass,
-                            Message = $"{displayName} is running"
-                        });
-                    }
-                    else
-                    {
-                        _results.Add(new DiagnosticResult
-                        {
-                            CheckName = displayName,
-                            Status = DiagnosticStatus.Warning,
-                            Message = $"{displayName} is not running (Status: {sc.Status})",
-                            Recommendation = $"Start the service using: net start {serviceName}"
+                            Message = $"{displayName} startup type is {startMode} ({(sc.Status == ServiceControllerStatus.Running ? "running" : "not running")})"
                         });
                     }
                 }
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("does not exist"))
+            {
+                // Service doesn't exist
+                _results.Add(new DiagnosticResult
+                {
+                    CheckName = displayName,
+                    Status = DiagnosticStatus.Error,
+                    Message = $"{displayName} service not found on this system"
+                });
             }
             catch (Exception ex)
             {
@@ -445,9 +485,9 @@ namespace WinUdateDiag
                     _results.Add(new DiagnosticResult
                     {
                         CheckName = "Last Windows Update Scan",
-                        Status = DiagnosticStatus.Warning,
-                        Message = "No recent Windows Update activity found in event log (last 7 days)",
-                        Recommendation = "Windows Update may need to be triggered manually"
+                        Status = DiagnosticStatus.Error,
+                        Message = "No Windows Update activity found in event log (last 7 days)",
+                        Recommendation = "System has not run Windows Update scans in 7+ days. Check Update settings, restart Windows Update service, or run manual scan."
                     });
                 }
 
@@ -508,6 +548,23 @@ namespace WinUdateDiag
                             Message = $"{successEvent.TimeGenerated:g}: {updateDetails}"
                         });
                     }
+                }
+
+                // Check for no MS updates (KB updates) in past 60 days - this is an ERROR condition
+                DateTime last60Days = DateTime.Now.AddDays(-60);
+                var ms60DayUpdates = successEvents
+                    .Where(e => e.TimeGenerated >= last60Days && ContainsKBNumber(e.Message))
+                    .ToList();
+
+                if (ms60DayUpdates.Count == 0)
+                {
+                    _results.Add(new DiagnosticResult
+                    {
+                        CheckName = "Microsoft Updates (60 Days)",
+                        Status = DiagnosticStatus.Error,
+                        Message = "No Microsoft updates with KB numbers installed in the past 60 days",
+                        Recommendation = "System may not be receiving critical security updates. Check Windows Update settings and run updates manually if needed."
+                    });
                 }
 
                 // Show recent failed installations (up to 5 most recent unique failures)
@@ -614,6 +671,16 @@ namespace WinUdateDiag
             }
 
             return false;
+        }
+
+        private bool ContainsKBNumber(string eventMessage)
+        {
+            if (string.IsNullOrEmpty(eventMessage))
+                return false;
+
+            // Check if message contains a KB number (KB followed by digits)
+            // Format: KB123456 or KB-123456
+            return System.Text.RegularExpressions.Regex.IsMatch(eventMessage, @"KB[0-9]{6,}", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         }
 
         private string ExtractUpdateDetailsFromEventLog(string eventMessage)

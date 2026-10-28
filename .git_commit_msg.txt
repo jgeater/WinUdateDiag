@@ -1,0 +1,33 @@
+Fix service status check logic to match correct status matrix
+
+Changes:
+- Manual startup services now always report PASS (whether running or not)
+  * User-controlled startup type is acceptable behavior
+  * Aligns with Windows Update service design
+
+- Automatic startup services report PASS only if running
+  * ERROR if not running (violates automatic startup configuration)
+  * Includes Boot and System priority startup types
+
+- Disabled services always report ERROR (unchanged)
+  * Critical configuration issue
+
+- Missing services now properly detected and reported as ERROR
+  * Added specific exception handling for missing services
+
+Updated Status Matrix:
+| Startup Type | Status | Pass/Fail |
+|--------------|--------|-----------|
+| Manual | not running | Pass |
+| Manual | running | Pass |
+| Automatic | running | Pass |
+| Automatic | not running | Fail |
+| Disabled | not running | Fail |
+| Disabled | running | Fail |
+| Missing | N/A | Fail |
+
+Documentation Updates:
+- DIAGNOSTIC_STATUS_REFERENCE.md: Updated service check table
+- README.md: Added comprehensive service status matrix table
+  * Shows all combinations of startup type and running state
+  * Explains Pass/Fail criteria

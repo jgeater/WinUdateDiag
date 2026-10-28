@@ -209,7 +209,7 @@ Examples:
   WinUpdateDiag.exe --logall
       Run all checks (config, diagnostics, history) and log to file:
       - C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\WinUdateDiag.log (if available)
-      - C:\PKGLOG\WinUdateDiag.log (always created, directory auto-created if needed)
+      - C:\PKGLOG\WinUdateDiag.log (if directory exists)
       Use --list, --pending, or --applicable to see full update lists
 
 Notes:
