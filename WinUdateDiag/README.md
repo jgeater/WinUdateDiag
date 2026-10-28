@@ -98,13 +98,33 @@ Checks:
 
 The diagnostic checks the Windows Update activity from the System event log (Event source: `Microsoft-Windows-WindowsUpdateClient`):
 
-- **Success**: Shows the most recent successful update installation time
-  - Event ID 19: Installation Successful
+- **Last Windows Update Scan**: Shows the most recent scan or update event
+  - Event ID 19: Installation Successful (with timestamp)
   - Event ID 43/44: Scan operations
-- **Failure**: Shows if the last update installation failed
-  - Event ID 20: Installation Failure
+  - Event ID 20: Installation Failure (with timestamp)
+
+- **Last Successful Installation**: Displays the timestamp of the most recent successful update installation with update details
+  - Update name, KB number, or package identifier
+  - Useful to verify when the system last received updates
+  - Helps identify if updates are stalled or blocked
+
+- **Failure indicators**: Shows if the last update installation failed
   - Recommendation to check event log details or run troubleshooter
+
 - **No activity**: If no Windows Update events found in the last 7 days, suggests running Windows Update manually
+
+**Failed Updates Detection:**
+
+If any Windows Update installations have failed *after* the last successful scan, the diagnostic will:
+- Report the total count of failures
+- List up to 5 most recent failures with:
+  - Timestamp
+  - Error code (if available)
+  - Update name or details
+- Show recommendations to review in Event Viewer or run troubleshooter
+- Indicate if there are additional failures beyond the 5 shown
+
+This helps identify installation failures that occur after scanning completes, which may indicate system issues or update compatibility problems.
 
 This event log approach works across all modern Windows versions and provides the most accurate picture of Windows Update activity on your system.
 

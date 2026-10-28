@@ -311,8 +311,15 @@ namespace WinUdateDiag
                 DateTime earliestTime = DateTime.Now.AddDays(-7); // Check last 7 days
                 EventLogEntryCollection entries = systemLog.Entries;
 
+                // Find the most recent scan event (43 or 44)
+                EventLogEntry lastScanEvent = null;
+                // Find the most recent successful installation (Event ID 19)
+                EventLogEntry lastSuccessfulInstall = null;
                 // Find the most recent Windows Update event
                 EventLogEntry lastWUEvent = null;
+                // Collect all failures
+                List<EventLogEntry> failureEvents = new List<EventLogEntry>();
+
                 foreach (EventLogEntry entry in entries)
                 {
                     if (entry.Source == "Microsoft-Windows-WindowsUpdateClient" && entry.TimeGenerated >= earliestTime)
@@ -320,6 +327,26 @@ namespace WinUdateDiag
                         if (lastWUEvent == null || entry.TimeGenerated > lastWUEvent.TimeGenerated)
                         {
                             lastWUEvent = entry;
+                        }
+
+                        // Track most recent scan event
+                        if ((entry.EventID == 43 || entry.EventID == 44) && 
+                            (lastScanEvent == null || entry.TimeGenerated > lastScanEvent.TimeGenerated))
+                        {
+                            lastScanEvent = entry;
+                        }
+
+                        // Track most recent successful installation
+                        if (entry.EventID == 19 && 
+                            (lastSuccessfulInstall == null || entry.TimeGenerated > lastSuccessfulInstall.TimeGenerated))
+                        {
+                            lastSuccessfulInstall = entry;
+                        }
+
+                        // Collect failures
+                        if (entry.EventID == 20)
+                        {
+                            failureEvents.Add(entry);
                         }
                     }
                 }
@@ -375,6 +402,59 @@ namespace WinUdateDiag
                         Recommendation = "Windows Update may need to be triggered manually"
                     });
                 }
+
+                // Show last successful installation separately if it's different from the most recent event
+                if (lastSuccessfulInstall != null && (lastWUEvent == null || lastSuccessfulInstall.EventID != lastWUEvent.EventID))
+                {
+                    string updateDetails = ExtractUpdateDetailsFromEventLog(lastSuccessfulInstall.Message);
+                    _results.Add(new DiagnosticResult
+                    {
+                        CheckName = "Last Successful Installation",
+                        Status = DiagnosticStatus.Pass,
+                        Message = $"{lastSuccessfulInstall.TimeGenerated:g}: {updateDetails}"
+                    });
+                }
+
+                // Check for failures after the last scan
+                if (lastScanEvent != null && failureEvents.Count > 0)
+                {
+                    var failuresAfterScan = failureEvents
+                        .Where(f => f.TimeGenerated > lastScanEvent.TimeGenerated)
+                        .OrderByDescending(f => f.TimeGenerated)
+                        .ToList();
+
+                    if (failuresAfterScan.Count > 0)
+                    {
+                        _results.Add(new DiagnosticResult
+                        {
+                            CheckName = "Failed Updates After Last Scan",
+                            Status = DiagnosticStatus.Warning,
+                            Message = $"Found {failuresAfterScan.Count} failed update installation(s) after last scan"
+                        });
+
+                        foreach (EventLogEntry failureEvent in failuresAfterScan.Take(5)) // Show up to 5 failures
+                        {
+                            string failureDetails = ExtractUpdateDetailsFromEventLog(failureEvent.Message);
+                            _results.Add(new DiagnosticResult
+                            {
+                                CheckName = "Failed Update Details",
+                                Status = DiagnosticStatus.Warning,
+                                Message = $"{failureEvent.TimeGenerated:g}: {failureDetails}",
+                                Recommendation = "Review in Event Viewer or run Windows Update troubleshooter"
+                            });
+                        }
+
+                        if (failuresAfterScan.Count > 5)
+                        {
+                            _results.Add(new DiagnosticResult
+                            {
+                                CheckName = "Failed Update Details",
+                                Status = DiagnosticStatus.Warning,
+                                Message = $"... and {failuresAfterScan.Count - 5} more failures (showing first 5)"
+                            });
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -385,6 +465,40 @@ namespace WinUdateDiag
                     Message = $"Error checking scan status: {ex.Message}"
                 });
             }
+        }
+
+        private string ExtractUpdateDetailsFromEventLog(string eventMessage)
+        {
+            if (string.IsNullOrEmpty(eventMessage))
+                return "Unknown error";
+
+            // Event messages contain details like:
+            // "Installation Failure: Windows failed to install the following update with error 0x80073D02: 9WZDNCRFJ3P2-MICROSOFT.ZUNEVIDEO"
+            // Extract the error code and update name if available
+
+            if (eventMessage.Contains("error"))
+            {
+                // Try to extract error code (0x followed by hex digits)
+                var match = System.Text.RegularExpressions.Regex.Match(eventMessage, @"0x[0-9A-Fa-f]+");
+                if (match.Success)
+                {
+                    var errorCode = match.Value;
+
+                    // Try to extract the update name (usually follows the error code)
+                    var updateMatch = System.Text.RegularExpressions.Regex.Match(eventMessage, @":\s*(.+?)(?:\s*$|\s*-\s*)");
+                    if (updateMatch.Success && updateMatch.Groups.Count > 1)
+                    {
+                        string updateName = updateMatch.Groups[1].Value.Trim();
+                        if (!string.IsNullOrEmpty(updateName) && updateName != errorCode)
+                            return $"{errorCode}: {updateName}";
+                    }
+
+                    return errorCode;
+                }
+            }
+
+            // Return first 100 characters of message if we can't parse it
+            return eventMessage.Length > 100 ? eventMessage.Substring(0, 100) + "..." : eventMessage;
         }
 
         private void CheckNetworkConnectivity()
