@@ -63,6 +63,7 @@
     <Compile Include="LogWriter.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="RegistryStorage.cs" />
     <Compile Include="WindowsUpdateConfiguration.cs" />
     <Compile Include="WindowsUpdateDiagnostics.cs" />
     <Compile Include="WindowsUpdateManager.cs" />

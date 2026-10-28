@@ -61,6 +61,7 @@ Options:
   -v, --verbose                   Show detailed information
   -a, --all                       Run config, diagnostics, and show update history
   -la, --logall                   Run all checks and log output to file
+  --store-registry                Store diagnostic results in registry (admin only)
 ```
 
 ### Examples
@@ -81,10 +82,10 @@ Shows:
 WinUpdateDiag.exe --diagnose
 ```
 Checks:
-- Windows Update service status
-- BITS service status
-- Cryptographic services
-- Windows Installer service
+- Windows Update service status (ERROR if disabled, Warning if stopped)
+- BITS service status (ERROR if disabled, Warning if stopped)
+- Cryptographic services (ERROR if disabled, Warning if stopped)
+- Windows Installer service (ERROR if disabled, Warning if stopped)
 - Available disk space
 - Pending reboot status
 - Update database health
@@ -103,30 +104,43 @@ The diagnostic checks the Windows Update activity from the System event log (Eve
   - Event ID 43/44: Scan operations
   - Event ID 20: Installation Failure (with timestamp)
 
-- **Last Successful Installation**: Displays the timestamp of the most recent successful update installation with update details
+- **Successful Installations**: Displays the most recent successful update installations with details
   - Update name, KB number, or package identifier
-  - Useful to verify when the system last received updates
-  - Helps identify if updates are stalled or blocked
+  - Up to 3 most recent successes shown
+  - Helps verify when the system last received updates
 
-- **Failure indicators**: Shows if the last update installation failed
-  - Recommendation to check event log details or run troubleshooter
+- **24-Hour Failure Alert ⚠️ ERROR**: If ANY Windows Update installations failed in the past 24 hours
+  - Prominently displayed as an error condition requiring attention
+  - Shows count of failures with timestamps and error codes
+  - Up to 3 most recent failures from last 24 hours
+  - Indicates recent update problems that need investigation
+
+- **Recent Failed Installations**: Shows failures from the past 7 days (beyond the urgent 24-hour window)
+  - Up to 5 most recent older failures with details
+  - Error codes and update names when available
+  - Recommendations to check event log or run troubleshooter
 
 - **No activity**: If no Windows Update events found in the last 7 days, suggests running Windows Update manually
 
-**Failed Updates Detection:**
-
-If any Windows Update installations have failed *after* the last successful scan, the diagnostic will:
-- Report the total count of failures
-- List up to 5 most recent failures with:
-  - Timestamp
-  - Error code (if available)
-  - Update name or details
-- Show recommendations to review in Event Viewer or run troubleshooter
-- Indicate if there are additional failures beyond the 5 shown
-
-This helps identify installation failures that occur after scanning completes, which may indicate system issues or update compatibility problems.
-
 This event log approach works across all modern Windows versions and provides the most accurate picture of Windows Update activity on your system.
+
+**Service Status Checks:**
+
+The diagnostic checks four critical Windows services:
+- Windows Update Service (wuauserv)
+- Background Intelligent Transfer Service (BITS)
+- Cryptographic Services (cryptsvc)
+- Windows Installer Service (msiserver)
+
+For each service, the diagnostic reports:
+- **Error ❌**: Service is **DISABLED**
+  - Recommendation: Re-enable the service with `sc config <servicename> start=auto`
+  - Disabled services will prevent Windows Update from functioning properly
+- **Warning ⚠️**: Service is **STOPPED** but not disabled
+  - Recommendation: Start the service with `net start <servicename>`
+  - Services should be running for normal Windows Update operation
+- **Pass ✓**: Service is **RUNNING**
+  - No action needed
 
 
 #### List Available Updates
@@ -204,17 +218,19 @@ Shows the last 20 updates excluding Defender/definition updates. Useful for:
 
 **Filtered Updates:**
 
-The following updates are automatically filtered out from history display to reduce clutter:
+The following updates and categories are automatically filtered out from history display and failure reporting to focus on actual system updates:
 
-- **Microsoft.WindowsAppRuntime.2** (`9NRZT3Q9R3DL-Microsoft.WindowsAppRuntime.2`)
+- **All Windows Store App Updates** (Package IDs starting with `9` like `9WZDNCRFJ3P2`, `9NRZT3Q9R3DL`, `9MV0B5HZVk97`, etc.)
 
-  This is the *Windows App Runtime*, a Microsoft Store package that provides core runtime functionality for modern desktop applications built with Windows App SDK (WASDK). It updates frequently (sometimes multiple times per day) as part of Microsoft's Store app infrastructure, not as a system Windows Update. Filtering it out provides a clearer view of actual Windows system and security updates.
+  Microsoft Store apps (Zune, music/video apps, games, utilities, etc.) often fail silently or have issues installing due to licensing, store availability, or discontinued services. Since these are not critical to system stability and don't affect Windows Update operations, all Store app failures are automatically excluded from error alerts.
+
+  Store apps will still appear in the update history when they install successfully, but their failures won't clutter error reporting. This keeps the diagnostic focused on actual Windows system, security, and driver updates that matter.
 
 - **App Installer/Desktop App Installer**
 
   These are Microsoft Store installation support packages that update frequently and are not critical system updates.
 
-These packages are still installed on the system and continue to receive updates, but they won't clutter your update history reports.
+These packages are still installed on the system and continue to receive updates, but they won't trigger failure alerts or clutter your error reports. The diagnostic focuses error alerts on actual Windows system, security, and driver updates that require attention.
 
 #### Run All Checks
 ```cmd
@@ -254,6 +270,42 @@ Runs comprehensive diagnostics (same as `--all`) and logs the complete output to
 Log files will be created in:
 - `C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\WinUdateDiag.log` (if directory exists)
 - `C:\PKGLOG\WinUdateDiag.log` (always created, directory created if needed)
+
+#### Store Diagnostics in Registry
+
+```cmd
+WinUpdateDiag.exe --diagnose --store-registry
+```
+
+Runs diagnostics and stores the results in the Windows registry at:
+```
+HKEY_LOCAL_MACHINE\SOFTWARE\WinUpdateDiag
+```
+
+**Requirements:**
+- Must run as administrator (UAC elevation required)
+- Registry key is automatically cleared before writing to ensure fresh data
+- Results are organized by status:
+  - `Pass_0000`, `Pass_0001`, etc. - Passing diagnostic checks
+  - `Warning_0000`, `Warning_0001`, etc. - Warnings detected
+  - `Error_0000`, `Error_0001`, etc. - Errors detected
+- Summary statistics are stored separately (total count, passed, warnings, errors)
+
+**Typical Usage:**
+- Use with Windows Remote Management (WinRM) or Group Policy scripts for centralized monitoring
+- Enables remote diagnostic collection from managed Windows systems
+- Allows third-party monitoring tools to query diagnostic results via registry
+
+**Example - Remote Collection:**
+```powershell
+# Run remotely via WinRM
+Invoke-Command -ComputerName RemotePC -ScriptBlock {
+    & "C:\Program Files\WinUpdateDiag\WinUpdateDiag.exe" --diagnose --store-registry
+}
+
+# Read results from registry
+$results = Get-ItemProperty -Path "HKLM:\SOFTWARE\WinUpdateDiag"
+```
 
 **Important:** Logs are written to **BOTH** locations simultaneously when both are available.
 

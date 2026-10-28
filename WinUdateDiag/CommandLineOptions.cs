@@ -21,6 +21,7 @@ namespace WinUdateDiag
         public int HistoryCount { get; set; } = 20;
         public bool Verbose { get; set; }
         public bool LogAll { get; set; }
+        public bool StoreInRegistry { get; set; }
 
         public static CommandLineOptions Parse(string[] args)
         {
@@ -131,6 +132,10 @@ namespace WinUdateDiag
                         options.ShowHistory = true;
                         break;
 
+                    case "--store-registry":
+                        options.StoreInRegistry = true;
+                        break;
+
                     default:
                         Console.WriteLine($"Unknown option: {args[i]}");
                         Console.WriteLine("Use --help for usage information");
@@ -164,6 +169,7 @@ Options:
   -v, --verbose                   Show detailed information
   -a, --all                       Run config, diagnostics, and show update history
   -la, --logall                   Run all checks and log output to file
+  --store-registry                Store diagnostic results in registry (admin only)
 
 Examples:
   WinUpdateDiag.exe --config

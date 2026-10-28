@@ -16,6 +16,8 @@ namespace WinUdateDiag
     {
         private List<DiagnosticResult> _results;
 
+        public List<DiagnosticResult> Results => _results;
+
         public WindowsUpdateDiagnostics()
         {
             _results = new List<DiagnosticResult>();
@@ -67,8 +69,21 @@ namespace WinUdateDiag
                 using (ServiceController sc = new ServiceController(serviceName))
                 {
                     sc.Refresh();
-                    
-                    if (sc.Status == ServiceControllerStatus.Running)
+
+                    // Check if service is disabled by reading the registry
+                    ServiceStartMode startMode = GetServiceStartMode(serviceName);
+
+                    if (startMode == ServiceStartMode.Disabled)
+                    {
+                        _results.Add(new DiagnosticResult
+                        {
+                            CheckName = displayName,
+                            Status = DiagnosticStatus.Error,
+                            Message = $"{displayName} is disabled",
+                            Recommendation = $"Enable the service using: sc config {serviceName} start=auto"
+                        });
+                    }
+                    else if (sc.Status == ServiceControllerStatus.Running)
                     {
                         _results.Add(new DiagnosticResult
                         {
@@ -98,6 +113,39 @@ namespace WinUdateDiag
                     Message = $"Error checking {displayName}: {ex.Message}"
                 });
             }
+        }
+
+        private ServiceStartMode GetServiceStartMode(string serviceName)
+        {
+            try
+            {
+                using (RegistryKey key = Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{serviceName}"))
+                {
+                    if (key != null)
+                    {
+                        object startValue = key.GetValue("Start");
+                        if (startValue != null && int.TryParse(startValue.ToString(), out int startMode))
+                        {
+                            return (ServiceStartMode)startMode;
+                        }
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // If we can't read the registry, assume it's not disabled
+            }
+
+            return ServiceStartMode.Automatic;
+        }
+
+        private enum ServiceStartMode
+        {
+            Boot = 0,
+            System = 1,
+            Automatic = 2,
+            Manual = 3,
+            Disabled = 4
         }
 
         private void CheckDiskSpace()
@@ -315,20 +363,16 @@ namespace WinUdateDiag
                 EventLogEntry lastScanEvent = null;
                 // Find the most recent successful installation (Event ID 19)
                 EventLogEntry lastSuccessfulInstall = null;
-                // Find the most recent Windows Update event
-                EventLogEntry lastWUEvent = null;
-                // Collect all failures
+                // Find the most recent installation attempt (success or failure)
+                EventLogEntry lastInstallAttempt = null;
+                // Collect all successes and failures for history
+                List<EventLogEntry> successEvents = new List<EventLogEntry>();
                 List<EventLogEntry> failureEvents = new List<EventLogEntry>();
 
                 foreach (EventLogEntry entry in entries)
                 {
                     if (entry.Source == "Microsoft-Windows-WindowsUpdateClient" && entry.TimeGenerated >= earliestTime)
                     {
-                        if (lastWUEvent == null || entry.TimeGenerated > lastWUEvent.TimeGenerated)
-                        {
-                            lastWUEvent = entry;
-                        }
-
                         // Track most recent scan event
                         if ((entry.EventID == 43 || entry.EventID == 44) && 
                             (lastScanEvent == null || entry.TimeGenerated > lastScanEvent.TimeGenerated))
@@ -336,61 +380,65 @@ namespace WinUdateDiag
                             lastScanEvent = entry;
                         }
 
-                        // Track most recent successful installation
-                        if (entry.EventID == 19 && 
-                            (lastSuccessfulInstall == null || entry.TimeGenerated > lastSuccessfulInstall.TimeGenerated))
+                        // Track most recent successful installation (excluding Store apps)
+                        if (entry.EventID == 19 && !ShouldFilterOutUpdate(entry.Message))
                         {
-                            lastSuccessfulInstall = entry;
+                            successEvents.Add(entry);
+                            if (lastSuccessfulInstall == null || entry.TimeGenerated > lastSuccessfulInstall.TimeGenerated)
+                            {
+                                lastSuccessfulInstall = entry;
+                            }
                         }
 
-                        // Collect failures
-                        if (entry.EventID == 20)
+                        // Collect failures (but filter out Store apps)
+                        if (entry.EventID == 20 && !ShouldFilterOutUpdate(entry.Message))
                         {
                             failureEvents.Add(entry);
+                        }
+
+                        // Track most recent installation attempt (either success or failure)
+                        if (entry.EventID == 19 || entry.EventID == 20)
+                        {
+                            if (lastInstallAttempt == null || entry.TimeGenerated > lastInstallAttempt.TimeGenerated)
+                            {
+                                lastInstallAttempt = entry;
+                            }
                         }
                     }
                 }
 
-                if (lastWUEvent != null)
+                // Report the most recent installation attempt
+                if (lastInstallAttempt != null)
                 {
-                    // Event IDs: 19=Success, 20=Failure, 43/44=Scan ops
-                    if (lastWUEvent.EventID == 19)
+                    if (lastInstallAttempt.EventID == 19)
                     {
                         _results.Add(new DiagnosticResult
                         {
                             CheckName = "Last Windows Update Scan",
                             Status = DiagnosticStatus.Pass,
-                            Message = $"Last update successful at {lastWUEvent.TimeGenerated:g}"
+                            Message = $"Most recent update successful at {lastInstallAttempt.TimeGenerated:g}"
                         });
                     }
-                    else if (lastWUEvent.EventID == 20)
+                    else if (lastInstallAttempt.EventID == 20)
                     {
                         _results.Add(new DiagnosticResult
                         {
                             CheckName = "Last Windows Update Scan",
                             Status = DiagnosticStatus.Warning,
-                            Message = $"Last update failed at {lastWUEvent.TimeGenerated:g}",
-                            Recommendation = "Check event log for details or run Windows Update troubleshooter"
+                            Message = $"Most recent update attempt failed at {lastInstallAttempt.TimeGenerated:g}",
+                            Recommendation = "See failed update details below; check event log or run troubleshooter"
                         });
                     }
-                    else if (lastWUEvent.EventID == 43 || lastWUEvent.EventID == 44)
+                }
+                else if (lastScanEvent != null)
+                {
+                    // If no installation attempts but we have scans
+                    _results.Add(new DiagnosticResult
                     {
-                        _results.Add(new DiagnosticResult
-                        {
-                            CheckName = "Last Windows Update Scan",
-                            Status = DiagnosticStatus.Pass,
-                            Message = $"Last scan activity at {lastWUEvent.TimeGenerated:g} (Event ID: {lastWUEvent.EventID})"
-                        });
-                    }
-                    else
-                    {
-                        _results.Add(new DiagnosticResult
-                        {
-                            CheckName = "Last Windows Update Scan",
-                            Status = DiagnosticStatus.Pass,
-                            Message = $"Last Windows Update activity at {lastWUEvent.TimeGenerated:g} (Event ID: {lastWUEvent.EventID})"
-                        });
-                    }
+                        CheckName = "Last Windows Update Scan",
+                        Status = DiagnosticStatus.Pass,
+                        Message = $"Scan activity detected at {lastScanEvent.TimeGenerated:g} (no installations yet)"
+                    });
                 }
                 else
                 {
@@ -403,56 +451,89 @@ namespace WinUdateDiag
                     });
                 }
 
-                // Show last successful installation separately if it's different from the most recent event
-                if (lastSuccessfulInstall != null && (lastWUEvent == null || lastSuccessfulInstall.EventID != lastWUEvent.EventID))
+                // Check for failures in the past 24 hours - this is an ERROR condition worth noting
+                DateTime last24Hours = DateTime.Now.AddHours(-24);
+                var recentFailures24h = failureEvents
+                    .Where(e => e.TimeGenerated >= last24Hours)
+                    .OrderByDescending(e => e.TimeGenerated)
+                    .ToList();
+
+                // Deduplicate failures by update identifier (keep only most recent of each)
+                var deduplicatedFailures24h = DeduplicateFailures(recentFailures24h);
+
+                if (deduplicatedFailures24h.Count > 0)
                 {
-                    string updateDetails = ExtractUpdateDetailsFromEventLog(lastSuccessfulInstall.Message);
                     _results.Add(new DiagnosticResult
                     {
-                        CheckName = "Last Successful Installation",
-                        Status = DiagnosticStatus.Pass,
-                        Message = $"{lastSuccessfulInstall.TimeGenerated:g}: {updateDetails}"
+                        CheckName = "Failed Updates (Last 24 Hours)",
+                        Status = DiagnosticStatus.Error,
+                        Message = $"⚠️ {deduplicatedFailures24h.Count} unique update failure(s) in the last 24 hours",
+                        Recommendation = "Review failed updates below and check event log for error codes"
                     });
-                }
 
-                // Check for failures after the last scan
-                if (lastScanEvent != null && failureEvents.Count > 0)
-                {
-                    var failuresAfterScan = failureEvents
-                        .Where(f => f.TimeGenerated > lastScanEvent.TimeGenerated)
-                        .OrderByDescending(f => f.TimeGenerated)
-                        .ToList();
-
-                    if (failuresAfterScan.Count > 0)
+                    foreach (EventLogEntry failureEvent in deduplicatedFailures24h.Take(3)) // Show up to 3 unique failures from last 24h
                     {
+                        string failureDetails = ExtractUpdateDetailsFromEventLog(failureEvent.Message);
                         _results.Add(new DiagnosticResult
                         {
-                            CheckName = "Failed Updates After Last Scan",
-                            Status = DiagnosticStatus.Warning,
-                            Message = $"Found {failuresAfterScan.Count} failed update installation(s) after last scan"
+                            CheckName = "Recent Failure (24h)",
+                            Status = DiagnosticStatus.Error,
+                            Message = $"{failureEvent.TimeGenerated:g}: {failureDetails}"
                         });
+                    }
+                }
 
-                        foreach (EventLogEntry failureEvent in failuresAfterScan.Take(5)) // Show up to 5 failures
-                        {
-                            string failureDetails = ExtractUpdateDetailsFromEventLog(failureEvent.Message);
-                            _results.Add(new DiagnosticResult
-                            {
-                                CheckName = "Failed Update Details",
-                                Status = DiagnosticStatus.Warning,
-                                Message = $"{failureEvent.TimeGenerated:g}: {failureDetails}",
-                                Recommendation = "Review in Event Viewer or run Windows Update troubleshooter"
-                            });
-                        }
+                // Show recent successful installations (up to 3 most recent)
+                var recentSuccesses = successEvents
+                    .OrderByDescending(e => e.TimeGenerated)
+                    .Take(3)
+                    .ToList();
 
-                        if (failuresAfterScan.Count > 5)
+                if (recentSuccesses.Count > 0)
+                {
+                    _results.Add(new DiagnosticResult
+                    {
+                        CheckName = "Recent Successful Installations",
+                        Status = DiagnosticStatus.Pass,
+                        Message = $"Last {recentSuccesses.Count} successful installation(s):"
+                    });
+
+                    foreach (EventLogEntry successEvent in recentSuccesses)
+                    {
+                        string updateDetails = ExtractUpdateDetailsFromEventLog(successEvent.Message);
+                        _results.Add(new DiagnosticResult
                         {
-                            _results.Add(new DiagnosticResult
-                            {
-                                CheckName = "Failed Update Details",
-                                Status = DiagnosticStatus.Warning,
-                                Message = $"... and {failuresAfterScan.Count - 5} more failures (showing first 5)"
-                            });
-                        }
+                            CheckName = "Successful Update",
+                            Status = DiagnosticStatus.Pass,
+                            Message = $"{successEvent.TimeGenerated:g}: {updateDetails}"
+                        });
+                    }
+                }
+
+                // Show recent failed installations (up to 5 most recent unique failures)
+                if (failureEvents.Count > 0)
+                {
+                    var deduplicatedFailures = DeduplicateFailures(failureEvents)
+                        .OrderByDescending(e => e.TimeGenerated)
+                        .Take(5)
+                        .ToList();
+
+                    _results.Add(new DiagnosticResult
+                    {
+                        CheckName = "Recent Failed Installations",
+                        Status = DiagnosticStatus.Warning,
+                        Message = $"Found {failureEvents.Count} total failures, {deduplicatedFailures.Count} unique update(s) showing last {deduplicatedFailures.Count}:"
+                    });
+
+                    foreach (EventLogEntry failureEvent in deduplicatedFailures)
+                    {
+                        string failureDetails = ExtractUpdateDetailsFromEventLog(failureEvent.Message);
+                        _results.Add(new DiagnosticResult
+                        {
+                            CheckName = "Failed Update",
+                            Status = DiagnosticStatus.Warning,
+                            Message = $"{failureEvent.TimeGenerated:g}: {failureDetails}"
+                        });
                     }
                 }
             }
@@ -465,6 +546,74 @@ namespace WinUdateDiag
                     Message = $"Error checking scan status: {ex.Message}"
                 });
             }
+        }
+
+        private List<EventLogEntry> DeduplicateFailures(List<EventLogEntry> failureEvents)
+        {
+            // Deduplicate by extracting update identifier from the event message
+            // Keep only the most recent occurrence of each unique update ID
+            Dictionary<string, EventLogEntry> deduplicatedDict = new Dictionary<string, EventLogEntry>();
+
+            foreach (EventLogEntry entry in failureEvents.OrderByDescending(e => e.TimeGenerated))
+            {
+                string updateId = ExtractUpdateIdFromMessage(entry.Message);
+
+                if (!string.IsNullOrEmpty(updateId) && !deduplicatedDict.ContainsKey(updateId))
+                {
+                    deduplicatedDict[updateId] = entry;
+                }
+                else if (string.IsNullOrEmpty(updateId))
+                {
+                    // If we can't extract an ID, use the message as the key
+                    string messageKey = entry.Message.Substring(0, Math.Min(100, entry.Message.Length));
+                    if (!deduplicatedDict.ContainsKey(messageKey))
+                    {
+                        deduplicatedDict[messageKey] = entry;
+                    }
+                }
+            }
+
+            return deduplicatedDict.Values.OrderByDescending(e => e.TimeGenerated).ToList();
+        }
+
+        private string ExtractUpdateIdFromMessage(string eventMessage)
+        {
+            // Try to extract the update identifier (usually a GUID or package ID)
+            // Examples: 9MV0B5HZVk97, KB12345678, or other identifiers
+            if (string.IsNullOrEmpty(eventMessage))
+                return null;
+
+            // Look for patterns like "9XXXXX..." (Store package IDs) or "KBXXXXXX" or other update IDs
+            var updateIdMatch = System.Text.RegularExpressions.Regex.Match(
+                eventMessage, 
+                @"(?:9[A-Z0-9]{8,}|KB\d+|[A-Z0-9]{8,}(?:\-[A-Z0-9]+)*)"
+            );
+
+            if (updateIdMatch.Success)
+            {
+                return updateIdMatch.Value.ToLower();
+            }
+
+            return null;
+        }
+
+        private bool ShouldFilterOutUpdate(string eventMessage)
+        {
+            if (string.IsNullOrEmpty(eventMessage))
+                return false;
+
+            // Filter out all Windows Store app updates - they are not critical system updates
+            // Store app package IDs follow the pattern: 9XXXXXXXXXXX (9 followed by alphanumeric)
+            // These include apps like Zune, music, video, games, and other Microsoft Store apps
+            // while keeping actual system updates (KB numbers, Windows components, drivers, etc.)
+
+            // Check if message contains a Windows Store package ID pattern (9 followed by 8+ alphanumeric chars)
+            if (System.Text.RegularExpressions.Regex.IsMatch(eventMessage, @"\b9[A-Z0-9]{8,}\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private string ExtractUpdateDetailsFromEventLog(string eventMessage)

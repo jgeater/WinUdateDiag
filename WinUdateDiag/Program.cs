@@ -60,6 +60,12 @@ namespace WinUdateDiag
                 {
                     var diagnostics = new WindowsUpdateDiagnostics();
                     diagnostics.RunDiagnostics();
+
+                    // Store results in registry if requested
+                    if (options.StoreInRegistry)
+                    {
+                        RegistryStorage.StoreDiagnosticResults(diagnostics.Results);
+                    }
                 }
 
                 if (options.ListUpdates)
