@@ -136,7 +136,7 @@ Results are typically displayed as:
 
 ## Registry Storage
 
-When using `--diagnose --store-registry`, results are stored in the registry with status-based prefixes:
+When using `--store-registry` (with or without `--diagnose`), diagnostics run automatically and results are stored in the registry with status-based prefixes. This includes the Update Pause Status result:
 - `Pass_0000`, `Pass_0001`, ... (successful checks)
 - `Warning_0000`, `Warning_0001`, ... (warnings)
 - `Error_0000`, `Error_0001`, ... (errors)

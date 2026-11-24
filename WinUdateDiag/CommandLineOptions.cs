@@ -133,6 +133,8 @@ namespace WinUdateDiag
                         break;
 
                     case "--store-registry":
+                        // Store-registry is a diagnostic action and must run the diagnostic suite.
+                        options.RunDiagnostics = true;
                         options.StoreInRegistry = true;
                         break;
 

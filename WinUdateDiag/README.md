@@ -61,7 +61,7 @@ Options:
   -v, --verbose                   Show detailed information
   -a, --all                       Run config, diagnostics, and show update history
   -la, --logall                   Run all checks and log output to file
-  --store-registry                Store diagnostic results in registry (admin only)
+  --store-registry                Run diagnostics and store results in registry (admin only)
 ```
 
 ### Examples
