@@ -38,6 +38,7 @@ namespace WinUdateDiag
             CheckNetworkConnectivity();
             CheckSystemIntegrity();
             CheckFeatureUpdateBlocks();
+            CheckUpdatePauseStatus();
 
             DisplayResults();
         }
@@ -937,6 +938,147 @@ namespace WinUdateDiag
                     Message = $"Could not check feature update restrictions: {ex.Message}"
                 });
             }
+        }
+
+        /// <summary>
+        /// Checks for active feature and quality update pauses configured through the Windows UI or MDM policy.
+        /// </summary>
+        private void CheckUpdatePauseStatus()
+        {
+            var pausedByUI = new List<string>();
+            var pausedByMDM = new List<string>();
+
+            try
+            {
+                // The Windows Update UI stores explicit pause values and pause end times here.
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var uiKey = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"))
+                {
+                    if (uiKey != null)
+                    {
+                        if (IsPauseValueEnabled(uiKey.GetValue("PauseFeatureUpdates")))
+                            pausedByUI.Add("Feature updates are paused from the Windows Update UI");
+                        if (IsPauseValueEnabled(uiKey.GetValue("PauseQualityUpdates")))
+                            pausedByUI.Add("Quality updates are paused from the Windows Update UI");
+
+                        AddUIPauseStatus(uiKey, "PauseFeatureUpdatesStartTime", "PauseFeatureUpdatesEndTime", "feature", pausedByUI);
+                        AddUIPauseStatus(uiKey, "PauseQualityUpdatesStartTime", "PauseQualityUpdatesEndTime", "quality", pausedByUI);
+                    }
+                }
+
+                // MDM policies are applied through PolicyManager's device Update key.
+                using (var baseKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64))
+                using (var mdmKey = baseKey.OpenSubKey(@"SOFTWARE\Microsoft\PolicyManager\current\device\Update"))
+                {
+                    if (mdmKey != null)
+                    {
+                        if (IsPauseValueEnabled(mdmKey.GetValue("PauseFeatureUpdates")))
+                        {
+                            pausedByMDM.Add("Feature updates are paused by MDM policy");
+                        }
+
+                        if (IsPauseValueEnabled(mdmKey.GetValue("PauseQualityUpdates")))
+                        {
+                            pausedByMDM.Add("Quality updates are paused by MDM policy");
+                        }
+                    }
+                }
+
+                var pausedSettings = new List<string>();
+                pausedSettings.AddRange(pausedByUI.Select(setting => "Windows Update UI: " + setting).Distinct());
+                pausedSettings.AddRange(pausedByMDM.Select(setting => "MDM: " + setting).Distinct());
+
+                if (pausedSettings.Count > 0)
+                {
+                    _results.Add(new DiagnosticResult
+                    {
+                        CheckName = "Update Pause Status",
+                        Status = DiagnosticStatus.Error,
+                        Message = "Windows updates are paused:\n      " + string.Join("\n      ", pausedSettings),
+                        Recommendation = "Resume updates in Windows Update settings or remove the MDM pause policy"
+                    });
+                }
+                else
+                {
+                    _results.Add(new DiagnosticResult
+                    {
+                        CheckName = "Update Pause Status",
+                        Status = DiagnosticStatus.Pass,
+                        Message = "No feature or quality update pauses detected from the Windows Update UI or MDM policies"
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _results.Add(new DiagnosticResult
+                {
+                    CheckName = "Update Pause Status",
+                    Status = DiagnosticStatus.Error,
+                    Message = $"Could not verify Windows update pause status: {ex.Message}",
+                    Recommendation = "Verify pause settings in Windows Update and confirm MDM policy status"
+                });
+            }
+        }
+
+        private void AddUIPauseStatus(RegistryKey key, string startValueName, string endValueName, string updateType, List<string> pausedSettings)
+        {
+            object startValue = key.GetValue(startValueName);
+            object endValue = key.GetValue(endValueName);
+
+            if (startValue == null && endValue == null)
+                return;
+
+            if (IsPausedUntilActive(endValue))
+            {
+                pausedSettings.Add($"{char.ToUpper(updateType[0]) + updateType.Substring(1)} updates are paused until {endValue}");
+            }
+        }
+
+        /// <summary>
+        /// Determines whether a UI pause end value represents an active or unexpired pause.
+        /// </summary>
+        private bool IsPausedUntilActive(object endValue)
+        {
+            if (endValue == null)
+                return false;
+
+            DateTime pauseEnd;
+            if (endValue is DateTime)
+            {
+                pauseEnd = (DateTime)endValue;
+            }
+            else if (DateTime.TryParse(endValue.ToString(), out pauseEnd))
+            {
+                // DateTime.TryParse accepts local/UTC strings and normalizes them locally.
+            }
+            else
+            {
+                // A pause value may use a registry representation we cannot parse.
+                // Treat it conservatively as an active pause when it is present.
+                return true;
+            }
+
+            return pauseEnd >= DateTime.UtcNow;
+        }
+
+        /// <summary>
+        /// Normalizes the registry representations commonly used for enabled pause values.
+        /// </summary>
+        private bool IsPauseValueEnabled(object value)
+        {
+            if (value == null)
+                return false;
+
+            if (value is bool)
+                return (bool)value;
+
+            if (value is int || value is long)
+                return Convert.ToInt64(value) != 0;
+
+            string text = value.ToString();
+            return text.Equals("1", StringComparison.OrdinalIgnoreCase) ||
+                   text.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+                   text.Equals("enabled", StringComparison.OrdinalIgnoreCase);
         }
 
         private void DisplayResults()

@@ -89,6 +89,16 @@ When a diagnostic check fails or encounters an error, the status assigned depend
 | Update restrictions enforced | **PASS** or **WARNING** | Depends on policy intent |
 | Check fails (exception) | **WARNING** | Cannot read policies |
 
+### Update Pause Status Check
+| Condition | Status | Reason |
+|-----------|--------|--------|
+| No UI or MDM pause detected | **PASS** | Feature and quality updates are not paused |
+| Feature or quality updates paused in Windows Update UI | **ERROR** | An active pause blocks updates |
+| `PauseFeatureUpdates` or `PauseQualityUpdates` enabled under PolicyManager | **ERROR** | MDM policy blocks updates |
+| Pause status cannot be verified | **ERROR** | Cannot confirm that updates are not paused |
+
+The UI check reads `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings`. The MDM check reads `HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\Update\PauseFeatureUpdates` and `PauseQualityUpdates`.
+
 ---
 
 ## Key Principles
